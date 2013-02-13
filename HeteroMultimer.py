@@ -72,7 +72,7 @@ class Parser(R):
         self.add('monomer','monomer_file_name','array str', "NA")
 
         # post processing flags
-        self.add('cluster_threshold','cluster_threshold','float',"2")
+        self.add('cluster_threshold','cluster_threshold','float',"NA")
         self.add('output_folder','output_folder','str',"result")
 
 
