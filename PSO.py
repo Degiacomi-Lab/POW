@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 # Copyright (c) 2012 EPFL (Ecole Polytechnique federale de Lausanne)
 # Laboratory for Biomolecular Modeling, School of Life Sciences
 #
@@ -23,32 +24,32 @@ size = comm.Get_size()
 rank = comm.Get_rank()
 
 class PSO:
-     
+
     def __init__(self,params,space,fitness):
         #extract PSO setup
         self.params=params
         self.space=space
         self.fitness=fitness
 
-	self.space.cell_size=self.space.high-self.space.low
+        self.space.cell_size=self.space.high-self.space.low
         self.params.dimensions=len(self.space.cell_size)
 
 
     def launch(self):
-        
+
         #master node creates a swarm from a random state or restarted one
         if rank == 0:
 
-    	    swarm=Swarm()
-	
-	    #if restart file is provided, load the swarm state and prepare log file
-	    if self.params.restart_load!="NA":
+            swarm=Swarm()
+
+            #if restart file is provided, load the swarm state and prepare log file
+            if self.params.restart_load!="NA":
                 print ">> recovering swarm state from file %s..."%self.params.restart_load
                 if os.path.isfile(self.params.restart_load)==1 :
-		    swarm.load_restart(self.params.restart_load)
-		else:
-		    print "ERROR: restart file %s not found!"%self.params.restart_load
-		    sys.exit(1)		
+                    swarm.load_restart(self.params.restart_load)
+                else:
+                    print "ERROR: restart file %s not found!"%self.params.restart_load
+                    sys.exit(1)
 
                 #if old logfile is available backup it and create a new one with the same name
                 #containing the lines generated until the restart file time
@@ -60,27 +61,28 @@ class PSO:
                     fin_log=open("%s.bkp"%self.params.output_file,"r")
                     totlines=self.params.n_particles*(swarm.repeat+1)*(swarm.ts+1)
                     for i in xrange(0,totlines,1):
-		        line=fin_log.readline()
+                        line=fin_log.readline()
                         fout_log.write(line)
 
                     fin_log.close()
-		    print ">> logging data in file %s, previous log backed up as %s.bkp"%(self.params.output_file, self.params.output_file)
-             
-                #if logfile is not found, create a new one 
-		else:
-		    print "WARNING: previous log file %s not found, starting a new one..."                 
-                    fout_log = open(self.params.output_file, "w")    
-         
+                    print ">> logging data in file %s, previous log backed up as %s.bkp"%(self.params.output_file, self.params.output_file)
+
+                #if logfile is not found, create a new one
+                else:
+                    print "WARNING: previous log file %s not found, starting a new one..."
+                    fout_log = open(self.params.output_file, "w")
+
                 print ">> optimization restored from repetition %s and step %s"%(swarm.repeat+1,swarm.ts+1)
 
             #generate a random swarm otherwise
-            else:
-                swarm.seed(self.params.n_particles,self.space,self.params.repel)
-                fout_log = open(self.params.output_file, "w")  
+            else: #
+                swarm.seed(self.params.n_particles,self.space) # indent in real, as part of else just above.
+                fout_log = open(self.params.output_file, "w")  # indent in real
 
 
-	    fitness_best=1000000000
+            fitness_best=1000000000
 
+    # this is for the other processors
         else:
             swarm=None
 
@@ -89,11 +91,12 @@ class PSO:
         swarm=comm.bcast(swarm,root=0)
         start_repeat=swarm.repeat
         start_ts=swarm.ts
- 
+        comm.Barrier()
 
-	#prepare repellers scaling factor       
+
+        #prepare repellers scaling factor, Xx the repeller should push according to the size of the cel right?
         if self.params.repel:
-            self.params.scale_repeller=self.space.cell_size*self.params.repel_factor   
+            self.params.scale_repeller=self.space.cell_size*self.params.repel_factor
 
 
         #################
@@ -101,25 +104,26 @@ class PSO:
         #################
 
         for r in xrange(start_repeat, self.params.repeat, 1):
-           
+
             #init tracker for best fitness in the current repeat
             if rank == 0:
                 print "\n> REPETITION %s\n"%(r+1)
-	        fitness_best=1000000000
+                fitness_best=1000000000
 
             ###############
             #PSO MAIN LOOP#
             ###############
-        
+
             for ts in xrange(start_ts,self.params.max_steps,1):
-        
+
                 #rescaling of inertia factor
                 self.params.inertia=self.params.inertia_max-float(ts)/float(self.params.max_steps)*(self.params.inertia_max-self.params.inertia_min)
-               
+
                 #root spreads the data to everybody (itself included)
                 comm.Barrier()
                 swarm=comm.bcast(swarm,root=0)
-      
+                comm.Barrier()
+
                 #every node elaborates the data. From received multidimensional array,
                 #everybody extract the array corresponding to its rank,
                 #and create a new one adding its rank to the extracted data
@@ -132,6 +136,7 @@ class PSO:
                 if self.params.repel:
                     list_repel=[]
                 while p < self.params.n_particles :
+                    # initialising particle
                     part=particle(p,self.fitness,self.space,self.params,swarm)
                     [part_pp,part_pv,part_pmp,part_pmv,part_cv, part_repel]=part.run()
                     #print "RANK %s of %s: %s -> %s"%(rank,size,p,part_cv)
@@ -144,7 +149,7 @@ class PSO:
                         list_repel.append(part_repel)
                     p+=size
                 #print "RANK %s: data transmitted"%(rank)
-               
+
                 pp=np.array(list_pp)
                 pv=np.array(list_pv)
                 pmp=np.array(list_pmp)
@@ -152,7 +157,7 @@ class PSO:
                 cv=np.array(list_cv)
                 if self.params.repel:
                     rep=np.array(list_repel)
-         
+
                 #data updated by all CPU is sent back to root (root data included) in rank order,
                 #in the form of a list
                 comm.Barrier()
@@ -165,7 +170,7 @@ class PSO:
                     r_collect=comm.gather(rep,root=0)
 
                 #root will reshape the received lists in new ordered multidimensional arrays
-                if rank == 0:      
+                if rank == 0:
                     max_lines=int(np.ceil(float(self.params.n_particles)/float(size)))
                     swarm.part_pos=reformat(pp_collect,max_lines,size)
                     swarm.part_vel=reformat(pv_collect,max_lines,size)
@@ -184,9 +189,9 @@ class PSO:
                                 cnt_rep+=1
                                 #print ">>> now repelling from %s"%r_tmp[i]
                                 swarm.repellers.append(r_tmp[i])
-                    
+
                         if cnt_rep>0:
-                            print ">>> added %s new repellers (tot. repellers: %s)"%(cnt_rep,len(swarm.repellers)) 
+                            print ">>> added %s new repellers (tot. repellers: %s)"%(cnt_rep,len(swarm.repellers))
 
                     #write all positions to the log
                     for n in xrange(0,self.params.n_particles,1):
@@ -200,30 +205,31 @@ class PSO:
                     if np.min(swarm.current_val) < fitness_best :
                         fitness_best=np.min(swarm.current_val)
                     print "step %s, best = %s"%(ts+1, fitness_best)
-          
+
                     #if needed, write a swarm restart file (backup previous one, in case the computer crashes when writing the restart)
                     if self.params.restart_freq>0 and np.mod(ts+1, self.params.restart_freq)==0:
-			print ">> saving swarm state at repetition %s, step %s..."%(r+1,ts+1)           
+                        print ">> saving swarm state at repetition %s, step %s..."%(r+1,ts+1)
                         swarm.ts=ts
                         swarm.repeat=r
                         if os.path.isfile(self.params.restart_save)==1:
                             shutil.copy2(self.params.restart_save,"%s.old"%self.params.restart_save)
-		        swarm.save_restart(self.params.restart_save)
- 
+                        swarm.save_restart(self.params.restart_save)
+
             #finished a repetition, randomly reseed the swarm for the next one
             if rank == 0:
-		swarm.seed(self.params.n_particles,self.space,self.params.repel)
+                swarm.seed(self.params.n_particles,self.space)
 
 
 
 class Swarm:
-    
+
     def __init__(self):
         #needed to build a proper restart (save ts and repeat at last restart time)
         self.ts=0
         self.repeat=0
+        self.repellers=[]
 
-    def seed(self,part,space,repel):
+    def seed(self,part,space):
         self.part_max_val = np.zeros(part)+10000
         self.current_val = np.zeros(part)+10000
         pp = []
@@ -236,14 +242,12 @@ class Swarm:
             pv.append(rand_set(-space.cell_size,space.cell_size))
         self.part_pos=np.array(pp)
         self.part_max_pos=np.array(pmp)
-        self.part_vel=np.array(pv) 
-        
-        if repel:
-            self.repellers=[]
+        self.part_vel=np.array(pv)
+
 
     #load swarm state from a restart file
     def load_restart(self,restart):
-	file1=open(restart,"r")
+        file1=open(restart,"r")
         dataPickle=file1.read()
         file1.close()
         self.__dict__=cPickle.loads(dataPickle)
@@ -252,7 +256,7 @@ class Swarm:
     def save_restart(self,restart):
         file1=open(restart,"w")
         file1.write(cPickle.dumps(self.__dict__))
-	file1.close()
+        file1.close()
 
 
 
@@ -268,7 +272,7 @@ class particle :
 
         #indicates wether to send a repeller position or not
         self.flag=False
-            
+
         #copy locally the particle position and velocity
         self.row_pos = self.swarm.part_pos[self.n].copy()
         self.row_vel = self.swarm.part_vel[self.n].copy()
@@ -283,11 +287,12 @@ class particle :
                 self.roi_val=np.array([self.swarm.part_max_val[self.n-1],self.swarm.part_max_val[self.n],self.swarm.part_max_val[0]])
                 self.roi_pos=np.array([self.swarm.part_max_pos[self.n-1],self.swarm.part_max_pos[self.n],self.swarm.part_max_pos[0]])
             else:
-                self.roi_val=self.swarm.part_max_val[self.n-1:self.n+2] 
+                self.roi_val=self.swarm.part_max_val[self.n-1:self.n+2]
                 self.roi_pos=self.swarm.part_max_pos[self.n-1:self.n+2]
             self.best_value=np.min(self.roi_val)
             self.best_id=np.argmin(self.roi_val)
             self.best_pos=self.roi_pos[self.best_id]
+
         elif self.params.neigh_type=="geographic":
             #geographic neighborhood
             #particles distance from current particle (difference only, to gain time)
@@ -307,7 +312,7 @@ class particle :
 
         #influence of personal max
         self.local=self.swarm.part_max_pos[self.n]-self.row_pos
-        #application perioding boundary conditions (for periodic dimensions)        
+        #application perioding boundary conditions (for periodic dimensions)
         self.test=np.logical_and(abs(self.local)>abs(self.swarm.part_max_pos[self.n]+self.space.cell_size-self.row_pos),self.space.boundary_type==0)
         self.local[self.test]=self.swarm.part_max_pos[self.n][self.test]+self.space.cell_size[self.test]-self.row_pos[self.test]
         self.test=np.logical_and(abs(self.local)>abs(self.swarm.part_max_pos[self.n]-self.space.cell_size-self.row_pos),self.space.boundary_type==0)
@@ -327,12 +332,12 @@ class particle :
         self.row_vel_new_tmp=self.previous+self.local_max+self.global_max
 
         #rescale obtained velocity if particle is too fast
-        self.test=self.row_vel_new_tmp > self.space.cell_size
-        self.row_vel_new_tmp[self.test]=self.space.cell_size[self.test]
+        self.test=np.abs(self.row_vel_new_tmp) > self.space.cell_size
+        self.row_vel_new_tmp[self.test]=np.multiply(np.sign(self.row_vel_new_tmp[self.test]),self.space.cell_size[self.test])
         ### flag, kick, reseed ###
         #update particle position according to velocity if speed is high enough (wrapping on boundary conditions)
         self.velocity=float(np.sqrt(np.dot(self.row_vel_new_tmp,self.row_vel_new_tmp)))
-      
+
         if self.velocity > self.params.kar :
             self.row_pos_new_tmp=self.row_pos+self.row_vel_new_tmp
             [self.row_pos_new,self.row_vel_new]=self.space.check_boundaries(self.row_pos_new_tmp,self.row_vel_new_tmp)
@@ -341,7 +346,7 @@ class particle :
             #if repellers are used, indicate that a flag should be placed
             if self.params.repel :
                 self.flag=True
-                
+
             #random kick particles being almost motionless and in a minima with bad fitness
             if self.swarm.current_val[self.n] > self.params.accept :
                 #print ">>> kicking particle %s having fitness %s and velocity %s"%(self.n,self.swarm.current_val[self.n],self.velocity)
@@ -365,26 +370,32 @@ class particle :
             for n in xrange(0,len(self.swarm.repellers),1):
                 #if the particle is close to a repulsion point in a certain dimension, add its biasing contribution
                 self.diff=self.row_pos-self.swarm.repellers[n]
-                test = self.diff<self.space.cell_size*0.05
+                test = self.diff<self.space.cell_size*self.params.repel_factor
                 if np.any(test):
                     #print "repelling now..."
                     self.bias[test]-=self.space.cell_size[test]*self.params.repel_factor/(self.diff[test]**2)
                     #print "done!"
             #bias velocity and position with repeller, and verify boundary conditions
+            self.test=np.abs(self.bias) > self.space.cell_size
+            self.bias_tmp=np.multiply(np.sign(self.bias[self.test]),self.space.cell_size[self.test])
+            self.bias[self.test]=self.bias_tmp
+
             self.row_vel_new_tmp=self.row_vel_new+self.bias
             self.row_pos_new_tmp=self.row_pos_new+self.bias
+
             [self.row_pos_new,self.row_vel_new]=self.space.check_boundaries(self.row_pos_new_tmp,self.row_vel_new_tmp)
             #print "p%s: done particle %s"%(rank,self.n)
+
         self.f=self.fitness.evaluate(self.n,self.row_pos_new)
 
         #check whether a new max has been found and store all the max and max_pos in temporary buffers
         if self.f <= self.swarm.part_max_val[self.n] :
             self.max_pos_new=self.row_pos_new.copy()
-            self.max_val_new=self.f.copy()        
+            self.max_val_new=self.f.copy()
         else:
             self.max_pos_new=self.swarm.part_max_pos[self.n].copy()
             self.max_val_new=self.swarm.part_max_val[self.n].copy()
-            
+
         #return  pos, vel, max pos, max fitness value and last fitness value
         if self.flag:
             return [self.row_pos_new, self.row_vel_new, self.max_pos_new, self.max_val_new, self.f, self.row_pos]

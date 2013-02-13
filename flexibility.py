@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 # Copyright (c) 2012 EPFL (Ecole Polytechnique federale de Lausanne)
 # Laboratory for Biomolecular Modeling, School of Life Sciences
 #
@@ -21,7 +22,7 @@ import numpy as np
 import scipy
 from scipy.cluster.vq import *
 
-import sys, os 
+import sys, os
 from copy import deepcopy
 import subprocess
 import re
@@ -37,11 +38,11 @@ def loader(trajectory, topology, align="yes",selection="protein"):
    #check input consistency
     if os.path.isfile(topology)!=True :
         if rank==0:
-           print "ERROR: topology file not found!"
+            print "ERROR: topology file not found!"
         sys.exit(1)
 
     if os.path.isfile(trajectory)!=True :
-	if rank==0:
+        if rank==0:
             print "ERROR: trajectory file not found!"
         sys.exit(1)
 
@@ -57,7 +58,7 @@ def loader(trajectory, topology, align="yes",selection="protein"):
         reference=Universe("protein.pdb")
         MDAnalysis.analysis.align.rms_fit_trj(universe,reference,select=selection, filename="aligned.dcd")
         universe=Universe(topology,"aligned.dcd")
-    
+
     #extract protein's atoms coords
     print ">> extracting atomic coordinates..."
     protein = universe.trajectory.timeseries(universe.selectAtoms(selection),format="fac")
@@ -72,16 +73,16 @@ def pca(trajectory, topology, ratio):
     #check input consistency
     if os.path.isfile(topology)!=True :
         if rank==0:
-           print "ERROR: topology file not found!"
+            print "ERROR: topology file not found!"
         sys.exit(1)
 
     if os.path.isfile(trajectory)!=True :
-	if rank==0:
+        if rank==0:
             print "ERROR: trajectory file not found!"
         sys.exit(1)
 
     if ratio>=1 or ratio<=0:
-	if rank==0:
+        if rank==0:
             print "ERROR: ratio of simulation energy should be a number in ]0;1[!"
         sys.exit(1)
 
@@ -101,40 +102,40 @@ def pca(trajectory, topology, ratio):
     #compute displacement matrix (removing mean pos from atom pos in coords matrix)
     disp=deepcopy(coords.astype(float))
     for i in xrange(0,len(disp),1):
-       disp[i]-=np.mean(disp[i])
+        disp[i]-=np.mean(disp[i])
 
     #compute covariance matrix, eigenvalues and eigenvectors
     print ">> computing covariance matrix..."
     covariance=np.cov(disp)
     print ">> extracting eigenvalues and eigenvectors (might take few minutes)..."
     [eigenval,eigenvec]=np.linalg.eig(covariance)
- 
+
     #compute representative number of eigenvectors according to desired ratio (user provided)
     print "\n   nb., eigenvalue, cumulative ratio"
     print "   ---------------------------------"
     cumulative=0
     cnt=0
     for i in xrange(0,len(eigenval),1):
-       cumulative+=eigenval[i]
-       print "   %s, %s, %s"%(i+1, eigenval[i], cumulative/np.sum(eigenval))
-       if(cumulative/np.sum(eigenval)>ratio):
-          cnt=i+1
-          break
+        cumulative+=eigenval[i]
+        print "   %s, %s, %s"%(i+1, eigenval[i], cumulative/np.sum(eigenval))
+        if(cumulative/np.sum(eigenval)>ratio):
+            cnt=i+1
+            break
 
     #compute projection of trajectory on the significant number of eigenvectors
     #lines = n-th eigenvector component, columns = simulation frame
     print "\n>> projecting trajectory on %s eigenvectors..."%cnt
     p=[]
     for i in xrange(0,cnt,1):
-       p.append(np.dot(eigenvec[:,i],coords)) 
+        p.append(np.dot(eigenvec[:,i],coords))
 
     proj=np.array(p)
 
     #output trajectory projection into file
     f = open("proj_coordinates.dat", 'w')
     for i in xrange(0,len(proj.transpose()),1):
-       ln=str(proj.transpose()[i])+"\n"
-       f.write(re.sub("\]","",re.sub("\[","",ln)))
+        ln=str(proj.transpose()[i])+"\n"
+        f.write(re.sub("\]","",re.sub("\[","",ln)))
     f.close()
     return proj,eigenvec
 
@@ -173,8 +174,3 @@ def get_nearest(all_coords, proj, centroid):
     target_frame=min_dist.argmin()
 
     return all_coords[:,target_frame]
-
-
-
-
-

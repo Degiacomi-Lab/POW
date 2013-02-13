@@ -21,10 +21,10 @@ import numpy as np
 
 #check input params consistency
 if len(sys.argv)!=3 and len(sys.argv)!=4:
-   print "\nERROR: parameters are not what I expected!"
-   print "USAGE: ./parse.py module input_file [logfile]\n"
-   sys.exit(1)
-
+    print "\nERROR: parameters are not what I expected!"
+    print "USAGE: ./parse.py module input_file [logfile]\n"
+    sys.exit(1)
+ 
 #get input file
 infile=str(sys.argv[2])
 if os.path.isfile(infile)!=1 :
