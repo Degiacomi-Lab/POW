@@ -1,0 +1,20 @@
+\BOOKMARK [1][-]{section.1}{Requirements}{}% 1
+\BOOKMARK [1][-]{section.2}{Architecture}{}% 2
+\BOOKMARK [1][-]{section.3}{Provided Files}{}% 3
+\BOOKMARK [1][-]{section.4}{Launching}{}% 4
+\BOOKMARK [1][-]{section.5}{Standard Keywords }{}% 5
+\BOOKMARK [2][-]{subsection.5.1}{Optimizer Behavior}{section.5}% 6
+\BOOKMARK [2][-]{subsection.5.2}{Search Space definition}{section.5}% 7
+\BOOKMARK [2][-]{subsection.5.3}{Output options}{section.5}% 8
+\BOOKMARK [1][-]{section.6}{Function Module}{}% 9
+\BOOKMARK [1][-]{section.7}{DockSymmCircle module}{}% 10
+\BOOKMARK [2][-]{subsection.7.1}{Overview}{section.7}% 11
+\BOOKMARK [2][-]{subsection.7.2}{Implementation Details}{section.7}% 12
+\BOOKMARK [3][-]{subsubsection.7.2.1}{Data Structures }{subsection.7.2}% 13
+\BOOKMARK [3][-]{subsubsection.7.2.2}{Search Space}{subsection.7.2}% 14
+\BOOKMARK [3][-]{subsubsection.7.2.3}{Fitness Function}{subsection.7.2}% 15
+\BOOKMARK [3][-]{subsubsection.7.2.4}{Clustering}{subsection.7.2}% 16
+\BOOKMARK [2][-]{subsection.7.3}{Keywords}{section.7}% 17
+\BOOKMARK [2][-]{subsection.7.4}{Constraint File }{section.7}% 18
+\BOOKMARK [2][-]{subsection.7.5}{Parameterization Examples}{section.7}% 19
+\BOOKMARK [1][-]{section.8}{Creation of a new POW Module}{}% 20
