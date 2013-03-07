@@ -34,6 +34,9 @@ comm = MPI.COMM_WORLD
 size = comm.Get_size()
 rank = comm.Get_rank()
 
+import CCC_simulMap as CCC
+from math import log10
+
 class Parser(R):
 
     def __init__(self):
@@ -75,10 +78,12 @@ class Parser(R):
         self.add('cluster_threshold','cluster_threshold','float',"NA")
         self.add('output_folder','output_folder','str',"result")
 
+        # density map docking flag
+        self.add('density_map_docking','map_dock_OnOff', 'str', 'no')
+        self.add('density_map','density_map', 'str', 'NA')
+
 
     def check_variables(self):
-
-        print ">>>>> MIXING WEIGHT: "+str(self.mix_weight)
 
         if self.cluster_threshold<0:
             print "ERROR: clustering threshlod should be greater than 0!"
@@ -129,27 +134,45 @@ class Parser(R):
             print 'ERROR: constraint_check function not found in file %s'%self.constraint
             sys.exit(1)
 
+        # check whether density flag is on or off
+        if self.map_dock_OnOff == "on" :
+            if self.density_map != "NA":
+                self.map_dock_OnOff = True
+            else:
+                print 'ERROR: if density map flag is on, a density map should be present in the directory'
+                sys.exit(1)
+            print ">> Electron Density Map Docking Mode"
+        elif self.map_dock_OnOff == "off":
+            self.map_dock_OnOff = False
+        else:
+            print 'ERROR: density_map_docking should be either "on" or "off"'
+            sys.exit(1)
+
+
+
 class Structure():
 
     def __init__ (self):
-        # initialising the values
+            # initialising the values
         self.monomer = "NA" # the monomeric unit
         self.pdb_file_name = "NA"
         self.index_CA_monomer = "NA"
         self.flexibility = "NA"
+        self.init_coords = "NA"
 
     def read_pdb (self, pdb):
         self.pdb_file_name = pdb
         self.monomer = Protein()
         self.monomer.import_pdb(pdb)
+        self.init_coords = self.monomer.get_xyz()
 
     def compute_PCA (self, topology,trajectory,align,ratio,mode, proj_file):
         self.flexibility = F.Flexibility_PCA()
         self.flexibility.compute_eigenvectors(topology,trajectory,align,ratio,mode, proj_file)
 
 
-    def print_pdb_name (self):
-        print self.pdb_file_name
+    def setCoords (self):
+        self.init_coords = self.monomer.get_xyz()
 
 
     #def get_index
@@ -213,7 +236,7 @@ class Data:
         for i in sorted_volumes:
 
             # insert the elements in a list
-            self.structure_list.append( volume_structure_hash[i][0] )
+            self.structure_list.append( volume_structure_hash[i][0] ) # insert the structure
             self.structure_hash[volume_structure_hash[i][1]] = self.structure_list.index(volume_structure_hash[i][0])
 
         self.structure_list_and_name = [self.structure_list, self.structure_hash]
@@ -240,37 +263,14 @@ class Data:
             #load monomeric structure (the pdb file)
             #self.ligand.import_pdb(params.ligand_file_name)
 
-
-        #RECEPTOR STRUCTURE
-        #self.receptor = Protein()
-#
-#               if params.assembly_style=="flexible":
-#                       print ">> flexible docking requested for receptor, launching PCA..."
-#                       try:
-#                               self.flex_receptor=F.Flexibility_PCA()
-#                               self.flex_receptor.compute_eigenvectors(params.receptor_topology,params.receptor_trajectory,params.receptor_align,params.receptor_ratio,params.mode,params.receptor_proj_file)
-#                               self.receptor.import_pdb("protein.pdb")
-#                       except ImportError, e:
-#                               sys.exit(1)
-#
-#                       if params.mode=="deform":
-#                               self.structure_receptor=Protein()
-#                               self.structure_receptor.import_pdb("protein.pdb")
-#                               self.receptor.import_pdb("CA.pdb")
-
-        #else:
-            #load monomeric structure
-            #self.receptor.import_pdb(params.receptor_file_name)
-
-
-        #self.cg_atoms=[]
-
         if params.energy_type=="vdw":
             self.CA_index_of_structures = self.get_index(["CA"])
             #[self.index_ligand,self.index_receptor]=self.get_index(["CA","CB"])
 
-        #print self.CA_index_of_structures[2]
-
+        # if the density map docking is on load the structure into data:
+        if params.map_dock_OnOff:
+            self.density_map_fileName = params.density_map
+            
     def get_index(self,atoms=["CA","CB"]):
 
         #generate a dummy assembly and extract the indexes where atoms of interest are located
@@ -407,10 +407,6 @@ class Space(S):
 #                       self.low[len_rigid_dim+i]=-data.flex_ligand.eigenspace_size[i]
 #                       self.high[len_rigid_dim+i]=data.flex_ligand.eigenspace_size[i]
 
-        #add receptor eigenvector fluctuations in search space
-#               for i in xrange(0,len_rec,1):
-#                       self.low[6+len_lig+i]=-data.flex_receptor.eigenspace_size[i]
-#                       self.high[6+len_lig+i]=data.flex_receptor.eigenspace_size[i]
 
 
         #check boundary conditions consistency
@@ -422,8 +418,6 @@ class Space(S):
             sys.exit(1)
         #define cell size
         self.cell_size=self.high-self.low
-        print "cell size: "
-        print self.cell_size
 
         #set boundary type (periodic for angles, repulsive for translation)
         if params.boundary_type=="NA":
@@ -443,7 +437,12 @@ class Fitness:
     def __init__(self,data,params):
 
         self.mode=params.mode
-
+        self.map_docking_flag = params.map_dock_OnOff # do so because you want to pass this var to the function evaluate below
+        
+        # loading the reference/experimental density map file if flag is on
+        if self.map_docking_flag:
+            self.density_map_fileName = params.density_map
+        
         #check if target exists
         try: params.target
         except NameError:
@@ -484,73 +483,121 @@ class Fitness:
         import AssemblyHeteroMultimer as A
 
 #               if ligand is flexible, select the most appropriate frame
-        if self.assembly_style=="flexible":
-            len_rigid_dim = 6*(len(self.data.structure_list)-1)
-            i = 0
+        for structure in self.data.structure_list:
+            if self.assembly_style=="flexible" and structure.flexibility != "NA":
+                len_rigid_dim = 6*(len(self.data.structure_list)-1)
+                i = 0
 
-            for structure in self.data.structure_list:
-                if structure.flexibility != "NA":
+                deform_coeffs = self.coordinateArray[n][len_rigid_dim : len_rigid_dim + i + len(structure.flexibility.eigenspace_size) ]
 
-                    deform_coeffs = pos[len_rigid_dim : len_rigid_dim + i + len(structure.flexibility.eigenspace_size) ]
+                if self.mode=="seed":
+                    pos_eig=structure.flexibility.proj[:,structure.flexibility.centroid]+deform_coeffs
+                    code,min_dist=vq(structure.flexibility.proj.transpose(),np.array([pos_eig]))
+                    target_frame=min_dist.argmin()
+                    coords=structure.flexibility.all_coords[:,target_frame]
+                    coords_reshaped=coords.reshape(len(coords)/3,3)
+                    structure.monomer.set_xyz(coords_reshaped)
+                else:
+                    coords=structure.monomer.get_xyz()
+                    coords_reshaped=coords.reshape(len(coords)*3)
 
-                    if self.mode=="seed":
-                        pos_eig=structure.flexibility.proj[:,structure.flexibility.centroid]+deform_coeffs
-                        code,min_dist=vq(structure.flexibility.proj.transpose(),np.array([pos_eig]))
-                        target_frame=min_dist.argmin()
-                        coords=structure.flexibility.all_coords[:,target_frame]
-                        coords_reshaped=coords.reshape(len(coords)/3,3)
-                        structure.monomer.set_xyz(coords_reshaped)
-                    else:
-                        coords=structure.monomer.get_xyz()
-                        coords_reshaped=coords.reshape(len(coords)*3)
+                    for n in xrange(0,len(deform_coeffs),1):
+                        coords_reshaped+=deform_coeffs[n]*structure.flexibility.eigenvec[:,n]
 
-                        for n in xrange(0,len(deform_coeffs),1):
-                            coords_reshaped+=deform_coeffs[n]*structure.flexibility.eigenvec[:,n]
+                    structure.monomer.set_xyz(coords_reshaped.reshape(len(coords_reshaped)/3,3))
 
-                        structure.monomer.set_xyz(coords_reshaped.reshape(len(coords_reshaped)/3,3))
-
-                    i += len(structure.flexibility.eigenspace_size)
+                i += len(structure.flexibility.eigenspace_size)
+            else:
+                structure.monomer.set_xyz(structure.init_coords)
 
 
         # after getting the positions from PSO, create a new assembly according to those positions
         self.assembly = A.AssemblyHeteroMultimer(self.data.structure_list_and_name)
         self.assembly.place_all_mobile_structures(pos)
+        
+        # when no density map docking use normal fitness function
+        if self.map_docking_flag == False:
 
-        #if needed, compute error with respect of target measures
-        distance=0
-        if len(self.target)!=0:
+            #if needed, compute error with respect of target measures
+            distance=0
+            if len(self.target)!=0:
+    
+                measure = constraint.constraint_check(self.data, self.assembly) # returns the distances between some ligand and receptor atoms
+    
+                if len(measure) != len(self.target) :
+                    print 'ERROR: measure = %s'%measure
+                    print 'ERROR: target measure = %s'%self.target
+                    print 'ERROR: constraint file produced %s measures, but %s target measures are provided!'%(len(measure),len(self.target))
+                    sys.exit(1)
+    
+                diff=self.target-np.array(measure)
+                distance=np.sqrt(np.dot(diff,diff))
+                #c1=0.1
+    
+            #compute system energy
+            energy=0
+            if len(self.data.CA_index_of_structures[0])>0:
+    
+                c1=self.c1 # was 0.2
+                energy=self.interface_vdw()
+                return c1*energy+(1-c1)*distance
+                #return energy/len(self.data.index_ligand)+distance
+            else:
+                print "WHAT THE...???"
+            #else:
+            #       c1=0.001
+            #       energy=self.measure_cg_energy(self.assembly,num)
+            #       #fitness = coulomb+vdw+distance
+            #       return c1*(energy[1]+energy[2])+(1-c1)*distance
+            
+        elif self.map_docking_flag == True:
+            
+            # the coefficient for CCC, bigger one will give a heavier weight for density map docking
+            c2 = 20 # try make vary from 1 to 100
+            
+            #proceed to calculate check for the geometry constraints
+            distance=0
+            if len(self.target)!=0:
+    
+                measure = constraint.constraint_check(self.data, self.assembly) # returns the distances between some ligand and receptor atoms
+    
+                if len(measure) != len(self.target) :
+                    print 'ERROR: measure = %s'%measure
+                    print 'ERROR: target measure = %s'%self.target
+                    print 'ERROR: constraint file produced %s measures, but %s target measures are provided!'%(len(measure),len(self.target))
+                    sys.exit(1)
+    
+                diff=self.target-np.array(measure)
+                distance=np.sqrt(np.dot(diff,diff))
+            
+            # compute the systems energy
+            energy=0
+            if len(self.data.CA_index_of_structures[0])>0:
+                c1=self.c1 
+                energy=self.interface_vdw()
 
-            measure = constraint.constraint_check(self.data, self.assembly) # returns the distances between some ligand and receptor atoms
-
-            if len(measure) != len(self.target) :
-                print 'ERROR: measure = %s'%measure
-                print 'ERROR: target measure = %s'%self.target
-                print 'ERROR: constraint file produced %s measures, but %s target measures are provided!'%(len(measure),len(self.target))
-                sys.exit(1)
-
-            diff=self.target-np.array(measure)
-            distance=np.sqrt(np.dot(diff,diff))
-            #c1=0.1
-
-        #compute system energy
-        energy=0
-        if len(self.data.CA_index_of_structures[0])>0:
-
-            c1=self.c1 # was 0.2
-            energy=self.interface_vdw()
-            return c1*energy+(1-c1)*distance
-            #return energy/len(self.data.index_ligand)+distance
-        else:
-            print "WHAT THE...???"
-        #else:
-        #       c1=0.001
-        #       energy=self.measure_cg_energy(self.assembly,num)
-        #       #fitness = coulomb+vdw+distance
-        #       return c1*(energy[1]+energy[2])+(1-c1)*distance
+            fitness_score = c1*energy+(1-c1)*distance + c2 # the + 1 at the end is used to have a better score when good map dock fitting
+            
+            # -------------------- DENSITY MAP DOCKING FITNESS
+            if fitness_score < (c2 + 10):
+                
+                print ">>> Density map refinement rank "+str(rank)
+                # create the pbd file to be transformed into the density map
+                self.assembly.create_PDB_for_density_map(rank)
+                #create the simulated density map
+                CCC.make_simulated_map ("simulated_map"+str(rank)+".pdb", rank, 1, 5 )
+                #compare the two density maps and extract their cross correlation coefficient:
+                ccc =  CCC.compute_corr(self.density_map_fileName, "simulated_map"+str(rank)+".sit")
+                
+                #return the score of final function:
+                return c1*energy+(1-c1)*distance+ c2*(1 - ccc)
+            
+            else:
+                return fitness_score
 
 
     def measure_target(self):
-
+        
         #measure constraints
         measure = constraint.constraint_check(self.assembly)
 
@@ -575,7 +622,8 @@ class Fitness:
 
         # for Heteromultimer assembly, you need to compute the energy of every structure against each other:
         for structure1_index in xrange (0,len(self.data.structure_list), 1):
-            for structure2_index in xrange (0,len(self.data.structure_list), 1):
+            for structure2_index in xrange (structure1_index,len(self.data.structure_list), 1):
+                d=[]
                 if structure1_index == structure2_index:
                     pass
 
@@ -588,7 +636,6 @@ class Fitness:
                     #m2=self.assembly.get_receptor_xyz()[self.data.index_receptor]
 
                     #extract distances of every atom from all the others
-                    d=[]
                     for i in xrange(0,len(m1),1):
                         d.append(np.sqrt(np.sum((m2-m1[i])**2,axis=1)))
 
@@ -601,6 +648,7 @@ class Fitness:
                     for i in xrange(0,len(couples[0]),1):
                         d=dist[couples[0,i],couples[1,i]]
                         energy+=4*epsilon*((sigma/d)**9-(sigma/d)**6)
+                        
         return energy
 
 
@@ -809,7 +857,7 @@ class Postprocess(PP):
             if len(self.log[:,1])==0:
                 return
 
-            self.coordinateArray = self.log[:, 0:len(self.log[0,:])].astype(float)
+            self.coordinateArray = deepcopy(self.log)   #[:, 0:len(self.log[0,:])].astype(float)
             self.dummyMatrix = np.empty(len(self.coordinateArray)**2)
             self.dummyMatrix.fill(100)
             self.distanceMatrix = self.dummyMatrix.reshape(len(self.coordinateArray),len(self.coordinateArray))
@@ -888,43 +936,43 @@ class Postprocess(PP):
 #               s.import_pdb(self.params.pdb_file_name)
 #               coords=s.get_xyz()
 
-        #----------------------------- first create the rmsd matrix
-        # creating variables to check for status of clustering of process 0
-        if rank == 0:
-            repetitions = indexBinHash[rank][1] - indexBinHash[rank][0]
-            totalIterations = len(self.coordinateArray) * repetitions
+        if len(self.coordinateArray) > (size *2):
+
+            #----------------------------- first create the rmsd matrix
+            # creating variables to check for status of clustering of process 0
+            if rank == 0:
+                repetitions = indexBinHash[rank][1] - indexBinHash[rank][0]
+                totalIterations = len(self.coordinateArray) * repetitions
+                counter = 0
+                printresent = 1 # those are used not to repeat the state of the clustering
+                printPast = 0
+
             counter = 0
-            printresent = 1 # those are used not to repeat the state of the clustering
-            printPast = 0
 
-        #synchronize all processes (get current timestep and repeat from swarm state)
-        pieceOfCoordinateArray = np.array([])
+            #synchronize all processes (get current timestep and repeat from swarm state)
+            pieceOfCoordinateArray = np.array([])
 
 
-        if rank in indexBinHash.keys():
-        #Starting the creation with 2 loops
-            for n in xrange(indexBinHash[rank][0],len(self.coordinateArray),1):
+            if rank in indexBinHash.keys():
+            #Starting the creation with 2 loops
+                for n in xrange(indexBinHash[rank][0],len(self.coordinateArray),1):
 
-                if n == indexBinHash[rank][1]:
-                    break
+                    if n == indexBinHash[rank][1]:
+                        break
+                    for m in xrange (n,len(self.coordinateArray),1):
+                        # make sure you are not using the same structures against themselves
+                        if n == m:
+        #                                       # add a "wrong" distance in the matrix to only have half the matrix
+                            pass
+                        else:
 
-                for m in xrange (n,len(self.coordinateArray),1):
-                    # make sure you are not using the same structures against themselves
-                    if n == m:
-    #                                       # add a "wrong" distance in the matrix to only have half the matrix
-                        pass
-                    else:
-
-                        # --------------------------------- MODIFY THE FLEXIBLE STRUCTURES FOR THE 1ST ASSEMBLY
-                        if self.params.assembly_style=="flexible":
-                            len_rigid_dim = 6*(len(self.data.structure_list)-1)
-                            i = 0
-
+                            # --------------------------------- MODIFY THE FLEXIBLE STRUCTURES FOR THE 1ST ASSEMBLY AND SET COORDS
                             for structure in self.data.structure_list:
-                                if structure.flexibility != "NA":
+                                if self.params.assembly_style=="flexible" and structure.flexibility != "NA":
+                                    len_rigid_dim = 6*(len(self.data.structure_list)-1)
+                                    i = 0
 
                                     deform_coeffs = self.coordinateArray[n][len_rigid_dim : len_rigid_dim + i + len(structure.flexibility.eigenspace_size) ]
-
 
                                     if self.params.mode=="seed":
                                         pos_eig=structure.flexibility.proj[:,structure.flexibility.centroid]+deform_coeffs
@@ -943,23 +991,25 @@ class Postprocess(PP):
                                         structure.monomer.set_xyz(coords_reshaped.reshape(len(coords_reshaped)/3,3))
 
                                     i += len(structure.flexibility.eigenspace_size)
+                                else:
+                                    structure.monomer.set_xyz(structure.init_coords)
 
-                        # ------------------- CREATING 1ST ASSEMBLY
-                        assembly1 = A.AssemblyHeteroMultimer(self.data.structure_list_and_name)
-                        assembly1.place_all_mobile_structures(self.coordinateArray[n][:len(self.coordinateArray[n])-1])
-                        # get the coordinates of all the structures to get the coordinates of Assembly
-                        coordinate_of_assembly1_structures = []
-                        for structure_index in xrange(0,len(self.data.structure_list), 1):
-                            coordinate_of_assembly1_structures.append(assembly1.get_structure_xyz(structure_index))
-                        m1 = np.concatenate((coordinate_of_assembly1_structures),axis=0)
 
-                        # --------------------------------- MODIFY THE FLEXIBLE STRUCTURES FOR THE 2ND ASSEMBLY
-                        if self.params.assembly_style=="flexible":
-                            len_rigid_dim = 6*(len(self.data.structure_list)-1)
-                            i = 0
 
+                            # ------------------- CREATING 1ST ASSEMBLY
+                            assembly1 = A.AssemblyHeteroMultimer(self.data.structure_list_and_name)
+                            assembly1.place_all_mobile_structures(self.coordinateArray[n][:len(self.coordinateArray[n])-1])
+                            # get the coordinates of all the structures to get the coordinates of Assembly
+                            coordinate_of_assembly1_structures = []
+                            for structure_index in xrange(0,len(self.data.structure_list), 1):
+                                coordinate_of_assembly1_structures.append(assembly1.get_structure_xyz(structure_index))
+                            m1 = np.concatenate((coordinate_of_assembly1_structures),axis=0)
+
+                            # --------------------------------- MODIFY THE FLEXIBLE STRUCTURES FOR THE 2ND ASSEMBLY
                             for structure in self.data.structure_list:
-                                if structure.flexibility != "NA":
+                                if self.params.assembly_style=="flexible" and structure.flexibility != "NA":
+                                    len_rigid_dim = 6*(len(self.data.structure_list)-1)
+                                    i = 0
 
                                     deform_coeffs = self.coordinateArray[m][len_rigid_dim : len_rigid_dim + i + len(structure.flexibility.eigenspace_size) ]
 
@@ -981,45 +1031,149 @@ class Postprocess(PP):
                                         structure.monomer.set_xyz(coords_reshaped.reshape(len(coords_reshaped)/3,3))
 
                                     i += len(structure.flexibility.eigenspace_size)
+                                else:
+                                    structure.monomer.set_xyz(structure.init_coords)
 
-                        # ------------------- CREATING 2ND ASSEMBLY
-                        assembly2 = A.AssemblyHeteroMultimer(self.data.structure_list_and_name)
-                        assembly2.place_all_mobile_structures(self.coordinateArray[m][:len(self.coordinateArray[m])-1])
-                        # get the coordinates of all the structures to get the coordinates of Assembly
-                        coordinate_of_assembly2_structures = []
-                        for structure_index in xrange(0,len(self.data.structure_list), 1):
-                            coordinate_of_assembly2_structures.append(assembly2.get_structure_xyz(structure_index))
-                        m2 = np.concatenate((coordinate_of_assembly2_structures),axis=0)
+                            # ------------------- CREATING 2ND ASSEMBLY
+                            assembly2 = A.AssemblyHeteroMultimer(self.data.structure_list_and_name)
+                            assembly2.place_all_mobile_structures(self.coordinateArray[m][:len(self.coordinateArray[m])-1])
+                            # get the coordinates of all the structures to get the coordinates of Assembly
+                            coordinate_of_assembly2_structures = []
+                            for structure_index in xrange(0,len(self.data.structure_list), 1):
+                                coordinate_of_assembly2_structures.append(assembly2.get_structure_xyz(structure_index))
+                            m2 = np.concatenate((coordinate_of_assembly2_structures),axis=0)
 
 
 
-                        # calculate RMSD between the 2
-                        rmsd=self.align(m1,m2) # --> comes from Default.Postprocess.align()
-                        self.distanceMatrix[n][m] = rmsd
+                            # calculate RMSD between the 2
+                            rmsd=self.align(m1,m2) # --> comes from Default.Postprocess.align()
+                            self.distanceMatrix[n][m] = rmsd
 
-            pieceOfCoordinateArray = self.distanceMatrix[indexBinHash[rank][0]:indexBinHash[rank][1],:]
-            print " Clustering process "+str(rank)+" finished"
+                            if rank == 0:
+                                counter += 1.0
+                                printPresent = int((counter / totalIterations) * 100)
+                                if (printPresent%10) == 0 and printPresent != printPast:
+                                    print "> ~"+str( printPresent )+" % structures clustered "
+                                    printPast = printPresent
 
-        comm.Barrier()
-        pieces = comm.gather(pieceOfCoordinateArray,root=0)
-        comm.Barrier()
+                pieceOfCoordinateArray = self.distanceMatrix[indexBinHash[rank][0]:indexBinHash[rank][1],:]
+                print " Clustering process "+str(rank)+" finished"
 
-        if rank == 0:
-            self.distanceMatrix = []
-            for elem in pieces:
-                if len(elem) < 2:
-                    pass
-                else:
-                    for arrays in elem:
-                        self.distanceMatrix.append(arrays)
+            comm.Barrier()
+            pieces = comm.gather(pieceOfCoordinateArray,root=0)
+            comm.Barrier()
 
-            lastRow = np.empty(len(self.coordinateArray))
-            lastRow.fill(100)
+            if rank == 0:
+                self.distanceMatrix = []
+                for elem in pieces:
+                    if len(elem) < 2:
+                        pass
+                    else:
+                        for arrays in elem:
+                            self.distanceMatrix.append(arrays)
 
-            self.distanceMatrix.append(lastRow)
-            self.distanceMatrix = np.array(self.distanceMatrix)
-            np.transpose(self.distanceMatrix)
-            print len(self.distanceMatrix)
-            print len(self.distanceMatrix[0])
-            np.savetxt('coordinateArray.txt', self.coordinateArray) # coordinateArray[0:50,0:50]
-            np.savetxt('np_matrix.txt', self.distanceMatrix) # distanceMatrix[0:50]
+                lastRow = np.empty(len(self.coordinateArray))
+                lastRow.fill(100)
+
+                self.distanceMatrix.append(lastRow)
+                self.distanceMatrix = np.array(self.distanceMatrix)
+                np.transpose(self.distanceMatrix)
+                print len(self.distanceMatrix)
+                print len(self.distanceMatrix[0])
+                np.savetxt('coordinateArray.txt', self.coordinateArray) # coordinateArray[0:50,0:50]
+                np.savetxt('np_matrix.txt', self.distanceMatrix) # distanceMatrix[0:50]
+
+        else:
+            if rank == 0:
+                print ">> less than "+str(size*2)+" solutions, proceeding ..."
+
+                for n in xrange(0,len(self.coordinateArray),1):
+
+                    for m in xrange (n,len(self.coordinateArray),1):
+                        # make sure you are not using the same structures against themselves
+                        if n == m:
+        #                                       # add a "wrong" distance in the matrix to only have half the matrix
+                            pass
+                        else:
+
+                            # --------------------------------- MODIFY THE FLEXIBLE STRUCTURES FOR THE 1ST ASSEMBLY
+                            for structure in self.data.structure_list:
+                                if self.params.assembly_style=="flexible" and structure.flexibility != "NA":
+                                    len_rigid_dim = 6*(len(self.data.structure_list)-1)
+                                    i = 0
+
+                                    deform_coeffs = self.coordinateArray[n][len_rigid_dim : len_rigid_dim + i + len(structure.flexibility.eigenspace_size) ]
+
+                                    if self.params.mode=="seed":
+                                        pos_eig=structure.flexibility.proj[:,structure.flexibility.centroid]+deform_coeffs
+                                        code,min_dist=vq(structure.flexibility.proj.transpose(),np.array([pos_eig]))
+                                        target_frame=min_dist.argmin()
+                                        coords=structure.flexibility.all_coords[:,target_frame]
+                                        coords_reshaped=coords.reshape(len(coords)/3,3)
+                                        structure.monomer.set_xyz(coords_reshaped)
+                                    else:
+                                        coords=structure.monomer.get_xyz()
+                                        coords_reshaped=coords.reshape(len(coords)*3)
+
+                                        for n in xrange(0,len(deform_coeffs),1):
+                                            coords_reshaped+=deform_coeffs[n]*structure.flexibility.eigenvec[:,n]
+
+                                        structure.monomer.set_xyz(coords_reshaped.reshape(len(coords_reshaped)/3,3))
+
+                                    i += len(structure.flexibility.eigenspace_size)
+                                else:
+                                    structure.monomer.set_xyz(structure.init_coords)
+
+                            # ------------------- CREATING 1ST ASSEMBLY
+                            assembly1 = A.AssemblyHeteroMultimer(self.data.structure_list_and_name)
+                            assembly1.place_all_mobile_structures(self.coordinateArray[n][:len(self.coordinateArray[n])-1])
+                            # get the coordinates of all the structures to get the coordinates of Assembly
+                            coordinate_of_assembly1_structures = []
+                            for structure_index in xrange(0,len(self.data.structure_list), 1):
+                                coordinate_of_assembly1_structures.append(assembly1.get_structure_xyz(structure_index))
+                            m1 = np.concatenate((coordinate_of_assembly1_structures),axis=0)
+
+                            # --------------------------------- MODIFY THE FLEXIBLE STRUCTURES FOR THE 2ND ASSEMBLY
+                            for structure in self.data.structure_list:
+                                if self.params.assembly_style=="flexible" and structure.flexibility != "NA":
+                                    len_rigid_dim = 6*(len(self.data.structure_list)-1)
+                                    i = 0
+
+                                    deform_coeffs = self.coordinateArray[n][len_rigid_dim : len_rigid_dim + i + len(structure.flexibility.eigenspace_size) ]
+
+                                    if self.params.mode=="seed":
+                                        pos_eig=structure.flexibility.proj[:,structure.flexibility.centroid]+deform_coeffs
+                                        code,min_dist=vq(structure.flexibility.proj.transpose(),np.array([pos_eig]))
+                                        target_frame=min_dist.argmin()
+                                        coords=structure.flexibility.all_coords[:,target_frame]
+                                        coords_reshaped=coords.reshape(len(coords)/3,3)
+                                        structure.monomer.set_xyz(coords_reshaped)
+                                    else:
+                                        coords=structure.monomer.get_xyz()
+                                        coords_reshaped=coords.reshape(len(coords)*3)
+
+                                        for n in xrange(0,len(deform_coeffs),1):
+                                            coords_reshaped+=deform_coeffs[n]*structure.flexibility.eigenvec[:,n]
+
+                                        structure.monomer.set_xyz(coords_reshaped.reshape(len(coords_reshaped)/3,3))
+
+                                    i += len(structure.flexibility.eigenspace_size)
+                                else:
+                                    structure.monomer.set_xyz(structure.init_coords)
+
+                            # ------------------- CREATING 2ND ASSEMBLY
+                            assembly2 = A.AssemblyHeteroMultimer(self.data.structure_list_and_name)
+                            assembly2.place_all_mobile_structures(self.coordinateArray[m][:len(self.coordinateArray[m])-1])
+                            # get the coordinates of all the structures to get the coordinates of Assembly
+                            coordinate_of_assembly2_structures = []
+                            for structure_index in xrange(0,len(self.data.structure_list), 1):
+                                coordinate_of_assembly2_structures.append(assembly2.get_structure_xyz(structure_index))
+                            m2 = np.concatenate((coordinate_of_assembly2_structures),axis=0)
+
+
+
+                            # calculate RMSD between the 2
+                            rmsd=self.align(m1,m2) # --> comes from Default.Postprocess.align()
+                            self.distanceMatrix[n][m] = rmsd
+                np.savetxt('coordinateArray.txt', self.coordinateArray) # coordinateArray[0:50,0:50]
+                np.savetxt('np_matrix.txt', self.distanceMatrix) # distanceMatrix[0:50]
