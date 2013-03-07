@@ -76,8 +76,8 @@ class AssemblyHeteroMultimer:
 
     def place_all_mobile_structures (self, pos):
         self.structure_list_coords = []
-        coords_array = deepcopy(pos[: (len(self.list_of_structures)-1)*6 ]) # only take the new coordinates of the rigid monomers
-        coords_array.shape = ((len(self.list_of_structures)-1), 6)
+        coords_array = deepcopy(pos[: (len(self.list_of_structures)-1)*6 ]) # only take the new coordinates of the rigid monomers #  len -1 
+        coords_array.shape = ((len(self.list_of_structures)-1), 6) # len -1
         coords = []
         for i in xrange(0,len(self.list_of_structures),1):
             self.structure_list_coords.append(deepcopy(self.list_of_structures[i].monomer.data[:,5:8]))
@@ -175,12 +175,12 @@ class AssemblyHeteroMultimer:
         for j in xrange(0,len(data_list),1):
 
             for i in xrange(0,len(data_list[j]),1):
-#                               for name, number in self.list_of_names.iteritems():
-#                                       if number == j:
-#                                               break
+                for name, number in self.list_of_names.iteritems():
+                    if number == j:
+                        break
 
-                #create and write PDB line
-                l=(data_list[j][i][0],data_list[j][i][1],data_list[j][i][2], chain_converter[j] ,data_list[j][i][4],data_list[j][i][5],data_list[j][i][6],data_list[j][i][7],data_list[j][i][8],data_list[j][i][9],data_list[j][i][10])
+                #create and write PDB line # name is replacing chain converter here
+                l=(data_list[j][i][0],data_list[j][i][1],data_list[j][i][2], name[0] ,data_list[j][i][4],data_list[j][i][5],data_list[j][i][6],data_list[j][i][7],data_list[j][i][8],data_list[j][i][9],data_list[j][i][10])
                 L='ATOM  %5i  %-4s%-4s%1s%4i    %8.3f%8.3f%8.3f%6.2f%6.2f          %2s\n'%l
                 f_out.write(L)
 
@@ -199,6 +199,39 @@ class AssemblyHeteroMultimer:
 
         f_out.close()
 
+# ------------- FUNCTION to export a pdb file so that can be converted to density map ----------------------
+
+    def create_PDB_for_density_map (self, procNo):
+
+        #TODO: maybe you re going to have to create a density map for each processor?
+        
+        # all the monomer have already have had their xyz set already in the fitness class
+        f_out=open("simulated_map"+str(procNo)+".pdb","w")
+        data_list = []
+
+        for structure_index in xrange(0,len(self.list_of_structures),1):
+            self.list_of_structures[structure_index].monomer.set_xyz(self.structure_list_coords[structure_index])
+            data_list.append(self.list_of_structures[structure_index].monomer.mapping(self.list_of_structures[structure_index].monomer.data))
+
+        #map intergers to characters from ligand data
+#               data_list=self.ligand_file.mapping(self.ligand_file.data)
+
+        for j in xrange(0,len(data_list),1):
+
+            for i in xrange(0,len(data_list[j]),1):
+                for name, number in self.list_of_names.iteritems():
+                    if number == j:
+                        break
+
+                #create and write PDB line # name is replacing chain converter here
+                l=(data_list[j][i][0],data_list[j][i][1],data_list[j][i][2], name[0] ,data_list[j][i][4],data_list[j][i][5],data_list[j][i][6],data_list[j][i][7],data_list[j][i][8],data_list[j][i][9],data_list[j][i][10])
+                L='ATOM  %5i  %-4s%-4s%1s%4i    %8.3f%8.3f%8.3f%6.2f%6.2f          %2s\n'%l
+                f_out.write(L)
+
+            #f_out.write("TER\n")
+        f_out.close()
+
+# ------------- FUNCTIONS for the Coarse grain forcefield implementation -----------------------------------
 
     def get_CG_coords(self):
         return self.cg_atoms
