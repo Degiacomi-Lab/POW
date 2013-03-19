@@ -17,21 +17,18 @@
 # Web site : http://lbm.epfl.ch
 
 
+#from PSO_Hetero import PSO
 from PSO import PSO
-
-import wx
+#import wx
 import os, sys
 import time
 import numpy as np
-import ClusterAndDraw as CnD
+#import ClusterAndDraw as CnD
 
 from mpi4py import MPI
 comm = MPI.COMM_WORLD
 size = comm.Get_size()
 rank = comm.Get_rank()
-
-# import the post processor and tree builder
-
 
 #check wether an appropriate number of parameters has been provided
 if rank == 0:
@@ -73,30 +70,22 @@ if rank == 0:
 
     print '\n> PREPROCESSING %s\n'%sys.argv[1].split('.')[0]
 
-    exec 'import %s as mode'%(sys.argv[1].split('.')[0]) # Xx mode is DockSymmCircle file! xX
+    exec 'import %s as mode'%(sys.argv[1].split('.')[0]) 
 
     #parse input file
     print '>> parsing input file...'
-    params=mode.Parser() #read user defined variables # Xx Params is class Parser of DockSymmCircle file xX
-    params.add_standard() #add default variables _> in default as well <-> self.add_standard of Parser Class
-    params.set_default_values() #set default values to all defined variables _> in default
-    params.parse(infile) #parse input file _> in default
-    params.check_standard_variables() #check consistency of standard variables _> in default
-    params.check_variables() #check consistency of user defined variables _> in DockSymmCircle
-
-    # ------------------------------------------------------------- TEST AREA -------------------------------------------------------------
-
-
-
-    # -------------------------------------------------------------------------------------------------------------------------------------
+    params=mode.Parser() 
+    params.add_standard() 
+    params.set_default_values() 
+    params.parse(infile) 
+    params.check_standard_variables() 
+    params.check_variables() 
 
 
     #load requested data structures
     print '>> importing data...'
-    data=mode.Data(params) # Xx data is the class data of docksym with argument params from above,
-    # -Xx so loaded into data all the parameters self.blabla of Parser class, in the class itself these are loaded in the
-    # -Xx def __init__ (self, params)function
-    # -Xx the Data class will then do appropriate modications, such checking whether there is conformational change etc
+    data=mode.Data(params)
+   
 
     #build search space
     print ">> generating search space..."
@@ -105,7 +94,7 @@ if rank == 0:
     for i in xrange(0,len(space.low),1):
         print "   %s, %s"%(space.low[i],space.high[i])
 
-    #charge module fitness function or the one requestyed by user
+    #charge module fitness function or the one requested by user
     if params.fit=="NA":
         print ">> creating fitness function..."
         fitness=mode.Fitness(data,params)
@@ -138,13 +127,14 @@ data=comm.bcast(data,root=0)
 comm.Barrier()
 
 #prepare optimizer
-search=PSO(params,space,fitness) # -> the init function of PSO
+search=PSO(params,space,fitness)
 
 #init optimization timer
 if rank==0:
     start2=time.time()
 
 search.launch()
+comm.Barrier()
 
 if rank==0:
     end2=time.time()
@@ -154,27 +144,14 @@ if rank==0:
     #postprocess
     print '\n> POSTPROCESSING...'
     post=mode.Postprocess(data,params)
-
+    
 comm.Barrier()
 post=comm.bcast( post,root=0)
 comm.Barrier()
-
-post.create_distance_matrix()
-
-    #post.run() # is now replaced by creating the distance matrix
-
+    
+post.run() # Now replaced by creating the distance matrix
 
 if rank == 0:
     end=time.time()
     one_step=end-start
     print("\n>> total execution time (sec): {t:<8.3f}\n".format(t=one_step))
-
-    # Code to create clusters, open interface and select PDBs
-    app = wx.App(False)
-    frame = CnD.MainFrame(None, "Clustering interface",post ,params, data)
-    frame.RMSDPanel.computeMatrix()
-    if params.cluster_threshold == "NA":
-        frame.Show()
-        app.MainLoop()
-    else:
-        frame.RMSDPanel.convertCoordsAndExportPDB(params.cluster_threshold)

@@ -2,6 +2,8 @@
 import numpy as np
 import copy
 import scipy.integrate
+from scipy import ndimage
+import scipy.ndimage.filters
 import subprocess
 
 def make_simulated_map (pdb_file, rank, voxel_space, resolution ):
@@ -9,7 +11,7 @@ def make_simulated_map (pdb_file, rank, voxel_space, resolution ):
     subprocess.call("FilaSitus/bin/kercon "+str(pdb_file)+" simulated_map"+str(rank)+".sit "+str(voxel_space)+" "+str(resolution)+" > out", shell=True)
 
 
-def compute_corr(exp_map, simul_map):
+def compute_corr(exp_map, simul_map, resolution):
 
     matrix1file = open(exp_map)
     matrix2file = open(simul_map)
@@ -44,7 +46,7 @@ def compute_corr(exp_map, simul_map):
         else:
             break
 
-    numpyMat = np.float32(matrix1)
+    tempoMat1 = np.float32(matrix1)
 
     while (1):
         line = matrix2file.readline()
@@ -67,9 +69,22 @@ def compute_corr(exp_map, simul_map):
         else:
             break
 
-    numpyMat2 = np.float32(matrix2)
-
-    # Situs based cross correlation coefficient:
+    tempoMat2 = np.float32(matrix2)
+    
+    
+    
+    
+    if resolution < 10:
+        # leave the maps unchanged
+        numpyMat = copy.deepcopy(tempoMat1)
+        numpyMat2 = copy.deepcopy(tempoMat2)
+    
+    elif resolution >= 10:
+        # apply laplacian filter on both density maps:
+        numpyMat = scipy.ndimage.filters.laplace(tempoMat1)
+        numpyMat2 = scipy.ndimage.filters.laplace(tempoMat2)
+    
+    
     # Situs based cross correlation coefficient:
     if len(numpyMat) <= len(numpyMat2):
         numerator = scipy.integrate.quad(lambda r: (numpyMat[r] * numpyMat2[r]), 0, len(numpyMat))

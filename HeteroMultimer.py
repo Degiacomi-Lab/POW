@@ -35,7 +35,9 @@ size = comm.Get_size()
 rank = comm.Get_rank()
 
 import CCC_simulMap as CCC
-from math import log10
+
+import ClusterAndDraw as CnD
+import wx
 
 class Parser(R):
 
@@ -52,16 +54,6 @@ class Parser(R):
         # style of the assembly, rigid or flexible
         self.add('assembly_style','assembly_style','str',"rigid")
 
-        #monomers for rigid assembly flags
-#               self.add('ligand_style','ligand_style','str',"rigid")
-#               self.add('ligand_projection','ligand_proj_file','str',"NA")
-#               self.add('ligand_align','ligand_align','str',"no")
-#               self.add('ligand_ratio','ligand_ratio','float',0.9)
-#               self.add('ligand_trajectory','ligand_trajectory','str',"NA")
-#               self.add('ligand_trajSelection','ligand_trajselection','str',"NA")
-#               self.add('ligand_topology','ligand_topology','str',"NA")
-#               self.add('ligand','ligand_file_name','str',"NA")
-
         # flexibility flags
         self.add('topology', 'topology', 'array str', 'NA')
         self.add('trajectory','trajectory', 'array str','NA')
@@ -69,7 +61,6 @@ class Parser(R):
         self.add('ratio','ratio','float',0.9)
         self.add('align', 'align', 'str', 'no')
         self.add('projection','proj_file','str',"NA")
-
 
         # monomer flags
         self.add('monomer','monomer_file_name','array str', "NA")
@@ -515,7 +506,8 @@ class Fitness:
         self.assembly = A.AssemblyHeteroMultimer(self.data.structure_list_and_name)
         self.assembly.place_all_mobile_structures(pos)
         
-        # when no density map docking use normal fitness function
+        # ------------------------------- DEFAULT FITNESS FUNCTION --------------------------
+        
         if self.map_docking_flag == False:
 
             #if needed, compute error with respect of target measures
@@ -550,6 +542,8 @@ class Fitness:
             #       #fitness = coulomb+vdw+distance
             #       return c1*(energy[1]+energy[2])+(1-c1)*distance
             
+        # --------------------------------- DENSITY MAP DOCKING ----------------------------
+        
         elif self.map_docking_flag == True:
             
             # the coefficient for CCC, bigger one will give a heavier weight for density map docking
@@ -581,13 +575,15 @@ class Fitness:
             # -------------------- DENSITY MAP DOCKING FITNESS
             if fitness_score < (c2 + 10):
                 
+                resol = 15
+                
                 print ">>> Density map refinement rank "+str(rank)
                 # create the pbd file to be transformed into the density map
                 self.assembly.create_PDB_for_density_map(rank)
                 #create the simulated density map
-                CCC.make_simulated_map ("simulated_map"+str(rank)+".pdb", rank, 1, 5 )
+                CCC.make_simulated_map ("simulated_map"+str(rank)+".pdb", rank, 1, resol )
                 #compare the two density maps and extract their cross correlation coefficient:
-                ccc =  CCC.compute_corr(self.density_map_fileName, "simulated_map"+str(rank)+".sit")
+                ccc =  CCC.compute_corr(self.density_map_fileName, "simulated_map"+str(rank)+".sit", resol)
                 
                 #return the score of final function:
                 return c1*energy+(1-c1)*distance+ c2*(1 - ccc)
@@ -683,167 +679,8 @@ class Postprocess(PP):
 
 
     #clustering according to rmsd of solutions in search space
-    #threshold2 = clustering threshold
-    def run(self) :
-        exec 'import %s as constraint'%(self.constraint)
 
-        #create output directory for generated PDB
-        self.OUTPUT_DIRECTORY="result"
-        if os.path.isdir(self.OUTPUT_DIRECTORY)!=1:
-            os.mkdir(self.OUTPUT_DIRECTORY)
-
-        clusters_file=open("%s/solutions.dat"%self.params.output_folder,"w")
-
-        #use superclass method to filter acceptable solutions
-        self.log=self.select_solutions(self.params)
-        print ">> %s solutions filtered"%len(self.log)
-        if len(self.log)==0:
-            return
-
-        #generate a dummy multimer and extract the indexes of C alphas for ligand and receptor
-        #multimer = A.Assembly(self.data.ligand, self.data.receptor, self.data.cg_atoms)
-        #multimer.place_ligand(np.array([0.0,0.0,0.0,0.0,0.0,0.0]))
-        #[m,index]=multimer.atomselect_ligand("*","*","CA",True)
-        #[m,index_ligand]=multimer.atomselect_ligand("*","*","CA",True)
-        #[m,index_receptor]=multimer.atomselect_receptor("*","*","CA",True)
-
-        ##load the monomeric structure positions
-        #s = Protein()
-        #if self.params.ligand_style=="flexible":
-            #s.import_pdb("protein.pdb")
-        #else:
-            #s.import_pdb(self.params.ligand_file_name)
-
-        #coords=s.get_xyz()
-
-        print ">> clustering best solutions..."
-        P=self.log[:, 0:len(self.log[0,:])].astype(float) #points list
-        V=self.log[:,-1] #values of best hits
-        C=[] #centroids array
-        P_C=np.zeros(len(P)) #points-to-cluster mapping
-        C_V=[] #centroids values
-        cnt=0 #centroids counter
-
-
-        #self.coordinateArray = self.log[:, 0:len(self.log[0,:])].astype(float)
-        secondCoord = []
-        #cluster accepted solutions
-        while(True) :
-            #check if new clustering loop is needed
-            k=np.nonzero(P_C==0)[0]
-            if len(k)!=0 :
-                cnt=cnt+1
-                P_C[k[0]]=cnt
-                a=P[k[0]]
-                C.append(a)
-            else :
-                break
-
-            #if ligand is flexible, select the most appropriate frame
-#                       if self.params.assembly_style=="flexi
-
-            ##create multimer
-            pos = np.array(C[cnt-1][:len(C[cnt-1])-1]) # np.array(C[cnt-1])[0:12].astype(float)
-            #multimer1 = A.Assembly(self.data.ligand,self.data.receptor, self.data.cg_atoms)
-            #multimer1.place_ligand(pos)
-
-            ##write multimer
-            #multimer1.write_PDB("%s/assembly%s.pdb"%(self.OUTPUT_DIRECTORY,cnt))
-
-            ##clustering loop
-            #m1_1=multimer1.get_ligand_xyz()[index_ligand]
-            #m1_2=multimer1.get_receptor_xyz()[index_receptor]
-            #m1=np.concatenate((m1_1,m1_2),axis=0)
-
-# --------------------------
-
-
-            # ------------------- CREATING 1ST ASSEMBLY
-            assembly1 = A.AssemblyHeteroMultimer(self.data.structure_list_and_name)
-            assembly1.place_all_mobile_structures(pos)
-
-            #write multimer
-            assembleCopy = deepcopy(assembly1)
-            assembleCopy.write_PDB("%s/assembly%s.pdb"%(self.OUTPUT_DIRECTORY,cnt))
-
-            # get the coordinates of all the structures to get the coordinates of Assembly
-            coordinate_of_assembly1_structures = []
-            for structure_index in xrange(0,len(self.data.structure_list), 1):
-                coordinate_of_assembly1_structures.append(assembly1.get_structure_xyz(structure_index))
-            m1 = np.concatenate((coordinate_of_assembly1_structures),axis=0)
-
-            cnt2=1
-
-
-            for i in xrange(0,len(k),1) :
-
-
-
-                ##extract positions of Calpha atoms in multimer
-                #multimer2 = A.Assembly(self.data.ligand,self.data.receptor,self.data.cg_atoms)
-                #multimer2.place_ligand(np.array([P[k[i]][0],P[k[i]][1],P[k[i]][2],P[k[i]][3],P[k[i]][4],P[k[i]][5]]))
-                #m2_1=multimer1.get_ligand_xyz()[index_ligand]
-                #m2_2=multimer1.get_receptor_xyz()[index_receptor]
-                #m2=np.concatenate((m2_1,m2_2),axis=0)
-                secondCoord = np.array(P[k[i]][:len(P[k[i]])-1])
-
-                # ------------------- CREATING 2ND ASSEMBLY
-                assembly2 = A.AssemblyHeteroMultimer(self.data.structure_list_and_name)
-                assembly2.place_all_mobile_structures(secondCoord)
-                # get the coordinates of all the structures to get the coordinates of Assembly
-                coordinate_of_assembly2_structures = []
-                for structure_index2 in xrange(0,len(self.data.structure_list), 1):
-                    coordinate_of_assembly2_structures.append(assembly2.get_structure_xyz(structure_index2))
-                m2 = np.concatenate((coordinate_of_assembly2_structures),axis=0)
-
-                #compute RMSD within reference and current model
-                rmsd=self.align(m2,m1)
-
-
-                if rmsd<self.params.cluster_threshold :
-                    cnt2+=1
-                    P_C[k[i]]=cnt
-
-            print ">>> clustered %s solutions on multimer %s"%(cnt2-1,cnt)
-
-            #set centroid score with score of closest neighbor in set
-            q=np.nonzero(P_C==cnt)[0]
-            distance=10000
-            targ=0
-            for i in xrange(0,len(q),1) :
-                d=np.sqrt(np.dot(C[cnt-1]-P[q[i]],C[cnt-1]-P[q[i]]))
-                if d<distance :
-                    distance=d
-                    targ=q[i]
-            C_V.append(V[targ])
-
-            #extract constraint values calculated for selected centroid
-            measure = constraint.constraint_check(self.data, assembly1)
-
-            ###generate output log (prepare data and formatting line, then dump in output file)###
-            l=[]
-            f=[]
-            for item in C[cnt-1][0:len(C[cnt-1])-1]:
-                l.append(item)
-                f.append("%8.3f ")
-            #write constraint values
-            f.append("| ")
-            for item in measure:
-                l.append(item)
-                f.append("%8.3f ")
-            #write fitness
-            f.append("| %8.3f\n")
-            l.append(C_V[cnt-1])
-
-            formatting=''.join(f)
-
-            clusters_file.write(formatting%tuple(l))
-
-        clusters_file.close()
-
-        return
-
-    def create_distance_matrix(self):
+    def run(self):
         if rank == 0:
 
             #create output directory for generated PDB
@@ -936,7 +773,7 @@ class Postprocess(PP):
 #               s.import_pdb(self.params.pdb_file_name)
 #               coords=s.get_xyz()
 
-        if len(self.coordinateArray) > (size *2):
+        if len(self.coordinateArray) > (size *3):
 
             #----------------------------- first create the rmsd matrix
             # creating variables to check for status of clustering of process 0
@@ -1057,7 +894,7 @@ class Postprocess(PP):
                                     printPast = printPresent
 
                 pieceOfCoordinateArray = self.distanceMatrix[indexBinHash[rank][0]:indexBinHash[rank][1],:]
-                print " Clustering process "+str(rank)+" finished"
+#                print " Clustering process "+str(rank)+" finished"
 
             comm.Barrier()
             pieces = comm.gather(pieceOfCoordinateArray,root=0)
@@ -1080,12 +917,12 @@ class Postprocess(PP):
                 np.transpose(self.distanceMatrix)
                 print len(self.distanceMatrix)
                 print len(self.distanceMatrix[0])
-                np.savetxt('coordinateArray.txt', self.coordinateArray) # coordinateArray[0:50,0:50]
-                np.savetxt('np_matrix.txt', self.distanceMatrix) # distanceMatrix[0:50]
+#                np.savetxt('coordinateArray.txt', self.coordinateArray) # coordinateArray[0:50,0:50]
+#                np.savetxt('np_matrix.txt', self.distanceMatrix) # distanceMatrix[0:50]
 
         else:
             if rank == 0:
-                print ">> less than "+str(size*2)+" solutions, proceeding ..."
+                print ">> less than "+str(size*3)+" solutions, proceeding ..."
 
                 for n in xrange(0,len(self.coordinateArray),1):
 
@@ -1175,5 +1012,17 @@ class Postprocess(PP):
                             # calculate RMSD between the 2
                             rmsd=self.align(m1,m2) # --> comes from Default.Postprocess.align()
                             self.distanceMatrix[n][m] = rmsd
-                np.savetxt('coordinateArray.txt', self.coordinateArray) # coordinateArray[0:50,0:50]
-                np.savetxt('np_matrix.txt', self.distanceMatrix) # distanceMatrix[0:50]
+                            
+        if rank == 0:
+            np.savetxt('coordinateArray.txt', self.coordinateArray)
+            np.savetxt('np_matrix.txt', self.distanceMatrix)
+            
+            # launch the Clustering and tree drawing module
+            app = wx.App(False)
+            frame = CnD.MainFrame(None, "Clustering interface",self.OUTPUT_DIRECTORY ,self.params, self.data)
+            frame.RMSDPanel.computeMatrix()
+            if self.params.cluster_threshold == "NA":
+                frame.Show()
+                app.MainLoop()
+            else:
+                frame.RMSDPanel.convertCoordsAndExportPDB(self.params.cluster_threshold)

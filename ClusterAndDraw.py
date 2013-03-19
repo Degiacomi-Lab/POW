@@ -25,11 +25,10 @@ class App(wx.App):
         return True
 
 class MainFrame (wx.Frame):
-    def __init__(self, parent, title, post, params, data): # _CHANGED_
+    def __init__(self, parent, title, outputDir, params, data): # _CHANGED_
         wx.Frame.__init__(self, parent, title=title, size=(1000,600))
 
-
-        self.post = post # _CHANGED_
+        self.outputDir = outputDir # _CHANGED_
         self.params = params # _CHANGED_
         self.data = data # _CHANGED_
 
@@ -137,7 +136,7 @@ class MakeWork (wx.Panel):
         memDC.SelectObject(wx.NullBitmap)
 
         img = bmp.ConvertToImage()
-        img.SaveFile("%s/tree.png"%(self.Parent.post.OUTPUT_DIRECTORY), wx.BITMAP_TYPE_PNG)
+        img.SaveFile("%s/tree.png"%(self.Parent.outputDir), wx.BITMAP_TYPE_PNG)
         print ">> saved snapshot of dendogram tree"
 
     def clickToConvertPDB(self, event):
@@ -168,11 +167,12 @@ class MakeWork (wx.Panel):
             centroidArray = copy.deepcopy(self.Parent.RMSDPanel.RMSDThresholdHash[sortedRMSDArray[-1]][0])
             average_RMSD_ARRAY = copy.deepcopy(self.Parent.RMSDPanel.RMSDThresholdHash[sortedRMSDArray[-1]][1])
 
+
         # writing the solution.dat file:
-        clusters_file=open("%s/solutions.dat"%self.Parent.post.OUTPUT_DIRECTORY,"w")
+        clusters_file=open("%s/solutions.dat"%self.Parent.outputDir,"w")
 
         # writing the tcl file:
-        tcl_file = open("%s/assembly.vmd"%self.Parent.post.OUTPUT_DIRECTORY,"w")
+        tcl_file = open("%s/assembly.vmd"%self.Parent.outputDir,"w")
 
         # import the constraint file:
         self.constraint = self.Parent.params.constraint.split('.')[0]
@@ -189,20 +189,24 @@ class MakeWork (wx.Panel):
             print 'ERROR: constraint_check function not found'
 
         # DOCKSYMMCIRCLE or DOCKDIMER Assembly
-        if len(self.Parent.RMSDPanel.coordinateArray[0]) < 12:
+        if len(self.Parent.RMSDPanel.coordinateArray[0]) < 12: # usually 12 but modified here not to test HeteroMultimer
+            print "extracting Simple multimer pdb"
 
-            self.structure = Protein()
-            self.structure.import_pdb(self.Parent.params.pdb_file_name)
-            coords=self.structure.get_xyz()
+            s = Protein()
+            s.import_pdb(self.Parent.params.pdb_file_name)
+            coords=s.get_xyz()
 
             for n in centroidArray:
                 print "creating PDB for centroid: "+str(n)
-                self.structure.set_xyz(coords) # what is coords?
-                multimer1 = M.Multimer(self.structure)
-                multimer1.create_multimer(self.Parent.params.degree,self.Parent.RMSDPanel.coordinateArray[n][3],np.array([self.Parent.RMSDPanel.coordinateArray[n][0],self.Parent.RMSDPanel.coordinateArray[n][1],self.Parent.RMSDPanel.coordinateArray[n][2]]))
+                self.Parent.data.structure.set_xyz(coords)#(self.Parent.post.coords)
+                multimer1 = M.Multimer(self.Parent.data.structure)
+                #self.structure.set_xyz(coords) # this was the old way, was not correct
+                #multimer1 = M.Multimer(self.structure) # same as directly above
+                multimer1.create_multimer(self.Parent.params.degree ,self.Parent.RMSDPanel.coordinateArray[n][3],np.array([self.Parent.RMSDPanel.coordinateArray[n][0],self.Parent.RMSDPanel.coordinateArray[n][1],self.Parent.RMSDPanel.coordinateArray[n][2]]))
+
 
                 # print the pdb file
-                multimer1.write_PDB("%s/assembly%s.pdb"%(self.Parent.post.OUTPUT_DIRECTORY,iterant))
+                multimer1.write_PDB("%s/assembly%s.pdb"%(self.Parent.outputDir,iterant))
 
                 # create the constraint:
                 measure = constraint.constraint_check(multimer1)
@@ -243,41 +247,43 @@ class MakeWork (wx.Panel):
 
         # HETEROMULTIMER ASSEMBLY
         else:
+            print "extracting Complex multimer pdb"
             for n in centroidArray:
 
                 # --------------------------------- MODIFY THE FLEXIBLE STRUCTURES FOR THE 1ST ASSEMBLY
-                if self.Parent.params.assembly_style=="flexible":
-                    len_rigid_dim = 6*(len(self.Parent.data.structure_list)-1)
-                    i = 0
+# --------------------------------- MODIFY THE FLEXIBLE STRUCTURES FOR THE 1ST ASSEMBLY
+                for structure in self.Parent.data.structure_list:
+                    if self.Parent.params.assembly_style=="flexible" and structure.flexibility != "NA":
+                        len_rigid_dim = 6*(len(self.data.structure_list)-1) # careful here! the -1 is undecisive
+                        i = 0
 
-                    for structure in self.Parent.data.structure_list:
-                        if structure.flexibility != "NA":
+                        deform_coeffs = self.coordinateArray[n][len_rigid_dim : len_rigid_dim + i + len(structure.flexibility.eigenspace_size) ]
 
-                            deform_coeffs = self.Parent.RMSDPanel.coordinateArray[n][len_rigid_dim : len_rigid_dim + i + len(structure.flexibility.eigenspace_size) ]
-                            if self.Parent.params.mode=="seed":
-                                pos_eig=structure.flexibility.proj[:,structure.flexibility.centroid]+deform_coeffs
-                                code,min_dist=vq(structure.flexibility.proj.transpose(),np.array([pos_eig]))
-                                target_frame=min_dist.argmin()
-                                coords=structure.flexibility.all_coords[:,target_frame]
-                                coords_reshaped=coords.reshape(len(coords)/3,3)
-                                structure.monomer.set_xyz(coords_reshaped)
-                            else:
-                                coords=structure.monomer.get_xyz()
-                                coords_reshaped=coords.reshape(len(coords)*3)
+                        if self.params.mode=="seed":
+                            pos_eig=structure.flexibility.proj[:,structure.flexibility.centroid]+deform_coeffs
+                            code,min_dist=vq(structure.flexibility.proj.transpose(),np.array([pos_eig]))
+                            target_frame=min_dist.argmin()
+                            coords=structure.flexibility.all_coords[:,target_frame]
+                            coords_reshaped=coords.reshape(len(coords)/3,3)
+                            structure.monomer.set_xyz(coords_reshaped)
+                        else:
+                            coords=structure.monomer.get_xyz()
+                            coords_reshaped=coords.reshape(len(coords)*3)
 
-                                for n in xrange(0,len(deform_coeffs),1):
-                                    coords_reshaped+=deform_coeffs[n]*structure.flexibility.eigenvec[:,n]
+                            for n in xrange(0,len(deform_coeffs),1):
+                                coords_reshaped+=deform_coeffs[n]*structure.flexibility.eigenvec[:,n]
 
-                                structure.monomer.set_xyz(coords_reshaped.reshape(len(coords_reshaped)/3,3))
+                            structure.monomer.set_xyz(coords_reshaped.reshape(len(coords_reshaped)/3,3))
 
-                            i += len(structure.flexibility.eigenspace_size)
-
+                        i += len(structure.flexibility.eigenspace_size)
+                    else:
+                        structure.monomer.set_xyz(structure.init_coords)
                 # ------------------------------ CREATE ASSEMBLY
                 print "creating PDB for centroid: "+str(iterant)
                 multimer1 = AH.AssemblyHeteroMultimer(self.Parent.data.structure_list_and_name)
                 multimer1.place_all_mobile_structures(self.Parent.RMSDPanel.coordinateArray[n][:len(self.Parent.RMSDPanel.coordinateArray[n])-1])
                 # print the pdb file
-                multimer1.write_PDB("%s/assembly%s.pdb"%(self.Parent.post.OUTPUT_DIRECTORY,iterant))
+                multimer1.write_PDB("%s/assembly%s.pdb"%(self.Parent.outputDir,iterant))
 
                 # create the constraint:
                 measure = constraint.constraint_check(self.Parent.data, multimer1)
@@ -393,9 +399,10 @@ mol drawframes top 0 {now}")
         self.secondMinimumIndex = 0
 
 
-        # as long as the self.sortedHashKeysKeys is no empty continue assigning clusters
-
+        # as long as the self.sortedHash.Keys is no empty continue assigning clusters
+        
         while self.distanceMatrixDummy.min() != 100:
+            
             self.updataMinimumValue()
 #            self.distanceMatrixDummy[np.where(self.distanceMatrixDummy == self.distanceMatrixDummy.min())])
             #for lolo in range(30):
@@ -961,8 +968,8 @@ mol drawframes top 0 {now}")
             self.minimumIndex = np.where(self.distanceMatrixDummy == self.distanceMatrixDummy.min())
 #            print self.distanceMatrixDummy.min()
 #            print "error ?: "+str(self.minimumIndex[0])
-            self.firstMinimumIndex = int(self.minimumIndex[0])
-            self.secondMinimumIndex = int(self.minimumIndex[1])
+            self.firstMinimumIndex = int(self.minimumIndex[0][0])
+            self.secondMinimumIndex = int(self.minimumIndex[1][0])
 
             # saving the last RMSD value so as to compute the dendogram tree according to that height
             self.maximalRMSD = self.distanceMatrixDummy.min()

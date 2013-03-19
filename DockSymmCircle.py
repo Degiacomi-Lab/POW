@@ -33,6 +33,9 @@ comm = MPI.COMM_WORLD
 size = comm.Get_size()
 rank = comm.Get_rank()
 
+import ClusterAndDraw as CnD
+import wx
+
 class Parser(R):
     def __init__(self):
 
@@ -622,180 +625,15 @@ class Postprocess(PP):
             print 'ERROR: constraint_check function not found'
 
     #clustering according to rmsd of solutions in search space
-    #threshold2 = clustering threshold
-    def run(self) :
-
-        exec 'import %s as constraint'%(self.constraint)
-
-        #create output directory for generated PDB
-        self.OUTPUT_DIRECTORY=self.params.output_folder
-        if os.path.isdir(self.OUTPUT_DIRECTORY)!=1:
-            os.mkdir(self.OUTPUT_DIRECTORY)
-
-        clusters_file=open("%s/solutions.dat"%self.params.output_folder,"w")
-
-        #use superclass method to filter acceptable solutions
-        self.log=self.select_solutions(self.params)
-        print ">> %s solutions filtered"%len(self.log[:,1])
-        if len(self.log[:,1])==0:
-            return
-
-        #generate a dummy multimer and extract the indexes of C alpha
-        multimer = M.Multimer(self.data.structure)
-        multimer.create_multimer(2,10,np.array([0.0,0.0,0.0]))
-        [m,index]=multimer.atomselect(1,"*","*","CA",True)
-
-        #if needed, extract receptor indexes too
-        if self.data.receptor_structure!=[]:
-            [r1,index_receptor]=self.data.receptor_structure.atomselect("*","*","CA",True)
-
-        #load the monomeric structure positions (needed for resetting atom position after displacement)
-        s = Protein()
-        s.import_pdb(self.params.pdb_file_name)
-        coords=s.get_xyz()
-
-        print ">> clustering best solutions..."
-        P=self.log[:,0:len(self.log[0,:])] #points list
-        V=self.log[:,-1] #values of best hits
-        C=[] #centroids array
-        P_C=np.zeros(len(P)) #points-to-cluster mapping
-        C_V=[] #centroids values
-        cnt=0 #centroids counter
-
-        #cluster accepted solutions
-        while(True) :
-            #check if new clustering loop is needed
-            k=np.nonzero(P_C==0)[0]
-            if len(k)!=0 :
-                cnt=cnt+1
-                P_C[k[0]]=cnt
-                a=P[k[0]]
-                C.append(a)
-            else :
-                break
-
-            if self.params.style=="flexible":
-                #build reference structure
-                deform_coeffs=np.array(C[cnt-1])[(4+self.rec_dim):len(C[cnt-1])-1]
-
-                pos=self.data.proj[:,self.data.centroid]+deform_coeffs
-                code,min_dist=vq(self.data.proj.transpose(),np.array([pos]))
-                target_frame1=min_dist.argmin()
-                coords=self.data.traj[:,target_frame1]
-                coords_reformat=coords.reshape(len(coords)/3,3)
-                self.data.structure.set_xyz(coords_reformat)
-            else:
-                self.data.structure.set_xyz(coords)
-
-            #create multimer
-            pos = np.array(C[cnt-1])[0:(4+self.rec_dim)].astype(float)
-            print pos
-            multimer1 = M.Multimer(self.data.structure)
-            multimer1.create_multimer(self.params.degree,pos[3],pos[0:3])
-            m1=multimer1.get_multimer_uxyz()[0][index]
-
-            if self.data.receptor_structure!=[]:
-                #shift multimer on z axis
-                multimer1.z_to_origin()
-                multimer1.z_shift(pos[4])
-
-                #rotate receptor (backing up original position, and putting it back when measure is done),
-                #also write the rotated receptor structure
-                coords_tmp=self.data.receptor_structure.get_xyz()
-                self.data.receptor_structure.rotation(pos[5],pos[6],pos[7])
-                r1=self.data.receptor_structure.get_xyz()[index_receptor]
-                self.data.receptor_structure.write_pdb("%s/receptor%s.pdb"%(self.OUTPUT_DIRECTORY,cnt))
-                self.data.receptor_structure.set_xyz(coords_tmp)
-                m1=np.concatenate((m1,r1))
-
-            #write multimer
-            multimer1.write_PDB("%s/assembly%s.pdb"%(self.OUTPUT_DIRECTORY,cnt))
-
-            #clustering loop
-            cnt2=1
-            for i in xrange(0,len(k),1) :
-
-                if self.params.style=="flexible":
-                    deform_coeffs=np.array(P[k[i]])[(4+self.rec_dim):len(P[k[i]])-1]
-                    pos=self.data.proj[:,self.data.centroid]+deform_coeffs
-                    code,min_dist=vq(self.data.proj.transpose(),np.array([pos]))
-                    target_frame=min_dist.argmin()
-                    coords=self.data.traj[:,target_frame]
-                    coords_reformat=coords.reshape(len(coords)/3,3)
-                    self.data.structure.set_xyz(coords_reformat)
-                else:
-                    self.data.structure.set_xyz(coords)
-
-                multimer2 = M.Multimer(self.data.structure)
-                multimer2.create_multimer(self.params.degree,P[k[i]][3],np.array([P[k[i]][0],P[k[i]][1],P[k[i]][2]]))
-                m2=multimer2.get_multimer_uxyz()[0][index]
-
-                if self.data.receptor_structure!=[]:
-                #shift multimer on z axis
-                    multimer2.z_to_origin()
-                    multimer2.z_shift(P[k[i]][4])
-
-                    #rotate receptor (backing up original position, and putting it back when measure is done)
-                    coords_tmp=self.data.receptor_structure.get_xyz()
-                    self.data.receptor_structure.rotation(P[k[i]][5],P[k[i]][6],P[k[i]][7])
-                    r2=self.data.receptor_structure.get_xyz()[index_receptor]
-                    self.data.receptor_structure.set_xyz(coords_tmp)
-                    m2=np.concatenate((m2,r2))
-
-                #compute RMSD
-                rmsd=self.align(m1,m2)
-
-                if rmsd<self.params.cluster_threshold :
-                    cnt2+=1
-                    P_C[k[i]]=cnt
-
-            if self.params.style=="rigid":
-                print ">>> clustered %s solutions on multimer %s"%(cnt2-1,cnt)
-            if self.params.style=="flexible":
-                print ">>> clustered %s solutions on multimer %s (from frame %s)"%(cnt2-1,cnt,target_frame1)
-
-            #set centroid score with score of closes neighbor in set
-            q=np.nonzero(P_C==cnt)[0]
-            distance=10000
-            targ=0
-            for i in xrange(0,len(q),1) :
-                d=np.sqrt(np.dot(C[cnt-1]-P[q[i]],C[cnt-1]-P[q[i]]))
-                if d<distance :
-                    distance=d
-                    targ=q[i]
-            C_V.append(V[targ])
-
-            #extract constraint values calculated for selected centroid
-            measure = constraint.constraint_check(multimer1)
-
-            ###generate output log (prepare data and formatting line, then dump in output file)###
-            l=[]
-            f=[]
-            for item in C[cnt-1][0:len(C[cnt-1])-1]:
-                l.append(item)
-                f.append("%8.3f ")
-            #write constraint values
-            f.append("| ")
-            for item in measure:
-                l.append(item)
-                f.append("%8.3f ")
-            #write fitness
-            f.append("| %8.3f\n")
-            l.append(C_V[cnt-1])
-
-            formatting=''.join(f)
-
-            clusters_file.write(formatting%tuple(l))
 
 
-        clusters_file.close()
-
-        return
-
-# ----------------------------------------------- DISTANCE MATRIX CREATION --------------------------------------
-
-    def create_distance_matrix(self):
+    def run(self):
         if rank == 0:
+
+            #create output directory for generated PDB
+            self.OUTPUT_DIRECTORY=self.params.output_folder
+            if os.path.isdir(self.OUTPUT_DIRECTORY)!=1:
+                os.mkdir(self.OUTPUT_DIRECTORY)
 
             #use superclass method to filter acceptable solutions
             self.log=self.select_solutions(self.params) # -> the result is in fact the self.filter_log already
@@ -803,7 +641,7 @@ class Postprocess(PP):
             if len(self.log[:,1])==0:
                 return
 
-            self.coordinateArray = self.log[:, 0:len(self.log[0,:])].astype(float)
+            self.coordinateArray = deepcopy(self.log) #[:, 0:len(self.log[0,:])].astype(float)
             self.dummyMatrix = np.empty(len(self.coordinateArray)**2)
             self.dummyMatrix.fill(100)
             self.distanceMatrix = self.dummyMatrix.reshape(len(self.coordinateArray),len(self.coordinateArray))
@@ -861,11 +699,6 @@ class Postprocess(PP):
 
         exec 'import %s as constraint'%(self.constraint)
 
-        #create output directory for generated PDB
-        self.OUTPUT_DIRECTORY=self.params.output_folder
-        if os.path.isdir(self.OUTPUT_DIRECTORY)!=1:
-            os.mkdir(self.OUTPUT_DIRECTORY)
-
         #clusters_file=open("%s/dist_matrix.dat"%self.params.output_folder,"w") # Xx this where you write the solution file
 
         #generate a dummy multimer and extract the indexes of C alpha
@@ -877,10 +710,11 @@ class Postprocess(PP):
         s = Protein()
         s.import_pdb(self.params.pdb_file_name)
         coords=s.get_xyz()
+        self.coords = deepcopy(coords)
 
         # ---------------------------- Depending on the number of solutions, use all the processors or just one of them
 
-        if len(self.coordinateArray) > (size *2):
+        if len(self.coordinateArray) > (size *3):
 
             ## creating variables to check for status of clustering of process 0
             if rank == 0:
@@ -957,12 +791,14 @@ class Postprocess(PP):
                 self.distanceMatrix.append(lastRow)
                 self.distanceMatrix = np.array(self.distanceMatrix)
                 np.transpose(self.distanceMatrix)
-                np.savetxt('coordinateArray.txt', self.coordinateArray) # coordinateArray[0:50,0:50]
-                np.savetxt('np_matrix.txt', self.distanceMatrix) # distanceMatrix[0:50]
+#                np.savetxt('coordinateArray.txt', self.coordinateArray) # coordinateArray[0:50,0:50]
+#                np.savetxt('np_matrix.txt', self.distanceMatrix) # distanceMatrix[0:50]
+
+                
 
         else:
             if rank == 0:
-                print ">> less than "+str(size*2)+" solutions, proceeding ..."
+                print ">> less than "+str(size*3)+" solutions, proceeding ..."
 
                 for n in xrange(0,len(self.coordinateArray),1):
                     #print ">> computing RMSDs for solution no: "+str(n+1)
@@ -993,6 +829,16 @@ class Postprocess(PP):
                             self.distanceMatrix[n][m] = rmsd
 
 
-
-                np.savetxt('coordinateArray.txt', self.coordinateArray) # coordinateArray[0:50,0:50]
-                np.savetxt('np_matrix.txt', self.distanceMatrix) # distanceMatrix[0:50]
+        if rank == 0:
+            np.savetxt('coordinateArray.txt', self.coordinateArray)
+            np.savetxt('np_matrix.txt', self.distanceMatrix)
+            
+            # launch the Clustering and tree drawing module
+            app = wx.App(False)
+            frame = CnD.MainFrame(None, "Clustering interface",self.OUTPUT_DIRECTORY ,self.params, self.data)
+            frame.RMSDPanel.computeMatrix()
+            if self.params.cluster_threshold == "NA":
+                frame.Show()
+                app.MainLoop()
+            else:
+                frame.RMSDPanel.convertCoordsAndExportPDB(self.params.cluster_threshold)
