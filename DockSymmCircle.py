@@ -442,7 +442,7 @@ class Space(S):
 
         #final check for all boundary conditions consistency (cause we're paranoid)
         if (self.low>self.high).any():
-            print 'ERROR: a lower boundary condition is greated than a higher one'
+            print 'ERROR: a lower boundary condition is greater than a higher one'
             sys.exit(1)
 
         #define cell size
@@ -741,16 +741,39 @@ class Postprocess(PP):
                             pass
 
                         else:
-
+                            
                             # create the first multimer
-                            self.data.structure.set_xyz(coords)
+                            if self.params.style=="flexible":
+                                #pick monomeric structure from database
+                                deform_coeffs=self.coordinateArray[n][(4+self.rec_dim):-1]
+                                pos_eig=self.data.proj[:,self.data.centroid]+deform_coeffs
+                                code,min_dist=vq(self.data.proj.transpose(),np.array([pos_eig]))
+                                target_frame=min_dist.argmin()
+                                coords=self.data.traj[:,target_frame]
+                                coords_reshaped=coords.reshape(len(coords)/3,3)
+                                self.data.structure.set_xyz(coords_reshaped)                         
+                            else:
+                                self.data.structure.set_xyz(coords)
+                
                             #pos = np.array(C[cnt-1])[0:(4+self.rec_dim)].astype(float)
                             multimer1 = M.Multimer(self.data.structure)
                             multimer1.create_multimer(self.params.degree,self.coordinateArray[n][3],np.array([self.coordinateArray[n][0],self.coordinateArray[n][1],self.coordinateArray[n][2]]))
                             m1=multimer1.get_multimer_uxyz()[0][index] # getting all the coordinates of m1
 
                             #create the second multimer
-                            self.data.structure.set_xyz(coords)
+                            # create the first multimer
+                            if self.params.style=="flexible":
+                                #pick monomeric structure from database
+                                deform_coeffs=self.coordinateArray[m][(4+self.rec_dim):-1]
+                                pos_eig=self.data.proj[:,self.data.centroid]+deform_coeffs
+                                code,min_dist=vq(self.data.proj.transpose(),np.array([pos_eig]))
+                                target_frame=min_dist.argmin()
+                                coords=self.data.traj[:,target_frame]
+                                coords_reshaped=coords.reshape(len(coords)/3,3)
+                                self.data.structure.set_xyz(coords_reshaped)                         
+                            else:
+                                self.data.structure.set_xyz(coords)
+                                
                             multimer2 = M.Multimer(self.data.structure)
                             multimer2.create_multimer(self.params.degree,self.coordinateArray[m][3],np.array([self.coordinateArray[m][0],self.coordinateArray[m][1],self.coordinateArray[m][2]]))
                             m2=multimer2.get_multimer_uxyz()[0][index]
@@ -812,14 +835,37 @@ class Postprocess(PP):
                         else:
 
                             # create the first multimer
-                            self.data.structure.set_xyz(coords)
+
+                            if self.params.style=="flexible":
+                                #pick monomeric structure from database
+                                deform_coeffs=self.coordinateArray[n][(4+self.rec_dim):-1]
+                                pos_eig=self.data.proj[:,self.data.centroid]+deform_coeffs
+                                code,min_dist=vq(self.data.proj.transpose(),np.array([pos_eig]))
+                                target_frame=min_dist.argmin()
+                                coords=self.data.traj[:,target_frame]
+                                coords_reshaped=coords.reshape(len(coords)/3,3)
+                                self.data.structure.set_xyz(coords_reshaped)                         
+                            else:
+                                self.data.structure.set_xyz(coords)
+                                
                             #pos = np.array(C[cnt-1])[0:(4+self.rec_dim)].astype(float)
                             multimer1 = M.Multimer(self.data.structure)
                             multimer1.create_multimer(self.params.degree,self.coordinateArray[n][3],np.array([self.coordinateArray[n][0],self.coordinateArray[n][1],self.coordinateArray[n][2]]))
                             m1=multimer1.get_multimer_uxyz()[0][index] # getting all the coordinates of m1
 
                             #create the second multimer
-                            self.data.structure.set_xyz(coords)
+                            if self.params.style=="flexible":
+                                #pick monomeric structure from database
+                                deform_coeffs=self.coordinateArray[m][(4+self.rec_dim):-1]
+                                pos_eig=self.data.proj[:,self.data.centroid]+deform_coeffs
+                                code,min_dist=vq(self.data.proj.transpose(),np.array([pos_eig]))
+                                target_frame=min_dist.argmin()
+                                coords=self.data.traj[:,target_frame]
+                                coords_reshaped=coords.reshape(len(coords)/3,3)
+                                self.data.structure.set_xyz(coords_reshaped)                         
+                            else:
+                                self.data.structure.set_xyz(coords)
+                                
                             multimer2 = M.Multimer(self.data.structure)
                             multimer2.create_multimer(self.params.degree,self.coordinateArray[m][3],np.array([self.coordinateArray[m][0],self.coordinateArray[m][1],self.coordinateArray[m][2]]))
                             m2=multimer2.get_multimer_uxyz()[0][index]

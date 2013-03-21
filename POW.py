@@ -61,16 +61,20 @@ sys.path.append(home_dir)
 working_dir=os.getcwd()
 sys.path.append(working_dir)
 
+#add module path in path, in case it's not in POW home
+p,mod=os.path.split(sys.argv[1])
+if len(p)>0:
+    sys.path.append(p)
+
 #preprocessing performed only by master node
 if rank == 0:
-
 
     #init timer
     start=time.time()
 
-    print '\n> PREPROCESSING %s\n'%sys.argv[1].split('.')[0]
+    print '\n> PREPROCESSING %s\n'%mod.split('.')[0]
 
-    exec 'import %s as mode'%(sys.argv[1].split('.')[0]) 
+    exec 'import %s as mode'%(mod.split('.')[0]) 
 
     #parse input file
     print '>> parsing input file...'
