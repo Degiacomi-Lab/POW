@@ -8,10 +8,10 @@ from scipy.cluster.vq import *
 import copy
 import string
 
-import Multimer as M
-import AssemblyHeteroMultimer as AH # _CHANGED_
-from Protein import Protein
-import flexibility_new as F # _CHANGED_
+#import Multimer as M
+#import AssemblyHeteroMultimer as AH # _CHANGED_
+#from Protein import Protein
+#import flexibility_new as F # _CHANGED_
 
 import os, sys
 
@@ -25,9 +25,10 @@ class App(wx.App):
         return True
 
 class MainFrame (wx.Frame):
-    def __init__(self, parent, title, outputDir, params, data): # _CHANGED_
+    def __init__(self, parent, title, outputDir, params, data, post): # _CHANGED_
         wx.Frame.__init__(self, parent, title=title, size=(1000,600))
 
+        self.post = post
         self.outputDir = outputDir # _CHANGED_
         self.params = params # _CHANGED_
         self.data = data # _CHANGED_
@@ -150,9 +151,8 @@ class MakeWork (wx.Panel):
 
         sortedRMSDArray =  copy.deepcopy(self.Parent.RMSDPanel.RMSDThresholdHash.keys())# this contains the sorted RMSDs of the RMSD threshold hash containing the RMDS and the corresponding centroid
         sortedRMSDArray.sort()
-        #print coordinateArray[1]
 
-        iterant = 0 # this iterant is used (in a bad way :( ) to select the right average RMSD value when iterating over the centroids
+        
 
         # parse the sorted array and return an array of the centroids and within RMSD values with RMSDs below threshold
         for e in range(len(sortedRMSDArray)):
@@ -166,179 +166,8 @@ class MakeWork (wx.Panel):
         if len(centroidArray) == 0:
             centroidArray = copy.deepcopy(self.Parent.RMSDPanel.RMSDThresholdHash[sortedRMSDArray[-1]][0])
             average_RMSD_ARRAY = copy.deepcopy(self.Parent.RMSDPanel.RMSDThresholdHash[sortedRMSDArray[-1]][1])
-
-
-        # writing the solution.dat file:
-        clusters_file=open("%s/solutions.dat"%self.Parent.outputDir,"w")
-
-        # writing the tcl file:
-        tcl_file = open("%s/assembly.vmd"%self.Parent.outputDir,"w")
-
-        # import the constraint file:
-        self.constraint = self.Parent.params.constraint.split('.')[0]
-
-        #test if constraint file exists, and function constaint_check is available
-        try:
-            exec 'import %s as constraint'%(self.constraint)
-        except ImportError, e:
-            print "ERROR: load of user defined constraint function failed!"
-            sys.exit(1)
-
-        try: constraint.constraint_check
-        except NameError:
-            print 'ERROR: constraint_check function not found'
-
-        # DOCKSYMMCIRCLE or DOCKDIMER Assembly
-        if len(self.Parent.RMSDPanel.coordinateArray[0]) < 12: # usually 12 but modified here not to test HeteroMultimer
-            print "extracting Simple multimer pdb"
-
-            s = Protein()
-            s.import_pdb(self.Parent.params.pdb_file_name)
-            coords=s.get_xyz()
-
-            for n in centroidArray:
-                print "creating PDB for centroid: "+str(n)
-                self.Parent.data.structure.set_xyz(coords)#(self.Parent.post.coords)
-                multimer1 = M.Multimer(self.Parent.data.structure)
-                #self.structure.set_xyz(coords) # this was the old way, was not correct
-                #multimer1 = M.Multimer(self.structure) # same as directly above
-                multimer1.create_multimer(self.Parent.params.degree ,self.Parent.RMSDPanel.coordinateArray[n][3],np.array([self.Parent.RMSDPanel.coordinateArray[n][0],self.Parent.RMSDPanel.coordinateArray[n][1],self.Parent.RMSDPanel.coordinateArray[n][2]]))
-
-
-                # print the pdb file
-                multimer1.write_PDB("%s/assembly%s.pdb"%(self.Parent.outputDir,iterant))
-
-                # create the constraint:
-                measure = constraint.constraint_check(multimer1)
-
-                # ----------------------------- WRITING SOLUTION.DAT
-                l = []
-                f = []
-
-                # insert coordinates in the solution.dat file
-                f.append("assembly "+str(iterant)+" |")
-                for item in self.Parent.RMSDPanel.coordinateArray[n][: len(self.Parent.RMSDPanel.coordinateArray[n])-1]:
-                    l.append(item)
-                    f.append("%8.3f ")
-                    #write constraint values
-                f.append("| ")
-                for item in measure:
-                    l.append(item)
-                    f.append("%8.3f ")
-                #write fitness
-                f.append("| %8.3f")
-                l.append(self.Parent.RMSDPanel.coordinateArray[n][-1])
-                # write average RMSD OF CLUSTER:
-                f.append("| %8.3f\n")
-                l.append(average_RMSD_ARRAY[iterant])
-
-                formatting=''.join(f)
-
-                clusters_file.write(formatting%tuple(l))
-
-                # --------------------------- WRITING TCL FILE
-                if iterant == 0:
-                    tcl_file.write("mol new assembly"+str(iterant)+".pdb first 0 last -1 step 1 filebonds 1 autobonds 1 waitfor all \n")
-
-                else:
-                    tcl_file.write("mol addfile assembly"+str(iterant)+".pdb type pdb first 0 last -1 step 1 filebonds 1 autobonds 1 waitfor all \n")
-
-                iterant += 1
-
-        # HETEROMULTIMER ASSEMBLY
-        else:
-            print "extracting Complex multimer pdb"
-            for n in centroidArray:
-
-                # --------------------------------- MODIFY THE FLEXIBLE STRUCTURES FOR THE 1ST ASSEMBLY
-# --------------------------------- MODIFY THE FLEXIBLE STRUCTURES FOR THE 1ST ASSEMBLY
-                for structure in self.Parent.data.structure_list:
-                    if self.Parent.params.assembly_style=="flexible" and structure.flexibility != "NA":
-                        len_rigid_dim = 6*(len(self.data.structure_list)-1) # careful here! the -1 is undecisive
-                        i = 0
-
-                        deform_coeffs = self.coordinateArray[n][len_rigid_dim : len_rigid_dim + i + len(structure.flexibility.eigenspace_size) ]
-
-                        if self.params.mode=="seed":
-                            pos_eig=structure.flexibility.proj[:,structure.flexibility.centroid]+deform_coeffs
-                            code,min_dist=vq(structure.flexibility.proj.transpose(),np.array([pos_eig]))
-                            target_frame=min_dist.argmin()
-                            coords=structure.flexibility.all_coords[:,target_frame]
-                            coords_reshaped=coords.reshape(len(coords)/3,3)
-                            structure.monomer.set_xyz(coords_reshaped)
-                        else:
-                            coords=structure.monomer.get_xyz()
-                            coords_reshaped=coords.reshape(len(coords)*3)
-
-                            for n in xrange(0,len(deform_coeffs),1):
-                                coords_reshaped+=deform_coeffs[n]*structure.flexibility.eigenvec[:,n]
-
-                            structure.monomer.set_xyz(coords_reshaped.reshape(len(coords_reshaped)/3,3))
-
-                        i += len(structure.flexibility.eigenspace_size)
-                    else:
-                        structure.monomer.set_xyz(structure.init_coords)
-                # ------------------------------ CREATE ASSEMBLY
-                print "creating PDB for centroid: "+str(iterant)
-                multimer1 = AH.AssemblyHeteroMultimer(self.Parent.data.structure_list_and_name)
-                multimer1.place_all_mobile_structures(self.Parent.RMSDPanel.coordinateArray[n][:len(self.Parent.RMSDPanel.coordinateArray[n])-1])
-                # print the pdb file
-                multimer1.write_PDB("%s/assembly%s.pdb"%(self.Parent.outputDir,iterant))
-
-                # create the constraint:
-                measure = constraint.constraint_check(self.Parent.data, multimer1)
-
-                # ----------------------------- WRITING SOLUTION.DAT
-                l = []
-                f = []
-                # insert coordinates in the solution.dat file
-
-                f.append("assembly "+str(iterant)+" |")
-                for item in self.Parent.RMSDPanel.coordinateArray[n][: len(self.Parent.RMSDPanel.coordinateArray[n])-1]:
-                    l.append(item)
-                    f.append("%8.3f ")
-                    #write constraint values
-                f.append("| ")
-                for item in measure:
-                    l.append(item)
-                    f.append("%8.3f ")
-                #write fitness
-                f.append("| %8.3f")
-                l.append(self.Parent.RMSDPanel.coordinateArray[n][-1])
-                # write average RMSD OF CLUSTER:
-                f.append("| %8.3f\n")
-                l.append(average_RMSD_ARRAY[iterant])
-
-                formatting=''.join(f)
-
-                clusters_file.write(formatting%tuple(l))
-
-                # --------------------------- WRITING TCL FILE
-                if iterant == 0:
-                    tcl_file.write("mol new assembly"+str(iterant)+".pdb first 0 last -1 step 1 filebonds 1 autobonds 1 waitfor all \n")
-
-                else:
-                    tcl_file.write("mol addfile assembly"+str(iterant)+".pdb type pdb first 0 last -1 step 1 filebonds 1 autobonds 1 waitfor all \n")
-
-                iterant += 1
-
-
-
-        tcl_file.write("mol delrep 0 top \n\
-mol representation NewCartoon 0.300000 10.000000 4.100000 0 \n\
-mol color Chain \n\
-mol selection {all} \n\
-mol material Opaque \n\
-mol addrep top \n\
-mol selupdate 0 top 0 \n\
-mol colupdate 0 top 0 \n\
-mol scaleminmax top 0 0.000000 0.000000 \n\
-mol smoothrep top 0 0 \n\
-mol drawframes top 0 {now}")
-
-        clusters_file.close()
-        tcl_file.close()
-
+            
+        self.Parent.post.write_pdb( centroidArray,average_RMSD_ARRAY)
 
 
     def computeMatrix (self):
