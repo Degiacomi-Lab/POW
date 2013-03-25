@@ -881,10 +881,112 @@ class Postprocess(PP):
             
             # launch the Clustering and tree drawing module
             app = wx.App(False)
-            frame = CnD.MainFrame(None, "Clustering interface",self.OUTPUT_DIRECTORY ,self.params, self.data)
+            frame = CnD.MainFrame(None, "Clustering interface",self.OUTPUT_DIRECTORY ,self.params, self.data, self)
             frame.RMSDPanel.computeMatrix()
             if self.params.cluster_threshold == "NA":
                 frame.Show()
                 app.MainLoop()
             else:
                 frame.RMSDPanel.convertCoordsAndExportPDB(self.params.cluster_threshold)
+                
+    def write_pdb(self, centroidArray, average_RMSD_ARRAY):
+                    
+        iterant = 0 # this iterator is used (in a bad way :( ) to select the right average RMSD value when iterating over the centroids
+
+        clusters_file=open("%s/solutions.dat"%self.OUTPUT_DIRECTORY,"w")
+
+        # writing the tcl file:
+        tcl_file = open("%s/assembly.vmd"%self.OUTPUT_DIRECTORY,"w")
+
+        # import the constraint file:
+        self.constraint = self.params.constraint.split('.')[0]
+
+        #test if constraint file exists, and function constaint_check is available
+        try:
+            exec 'import %s as constraint'%(self.constraint)
+        except ImportError, e:
+            print "ERROR: load of user defined constraint function failed!"
+            sys.exit(1)
+
+        try: constraint.constraint_check
+        except NameError:
+            print 'ERROR: constraint_check function not found'
+
+        
+#        if len(self.Parent.RMSDPanel.coordinateArray[0]) < 12: # usually 12 but modified here not to test HeteroMultimer
+        print "extracting Simple multimer pdb"
+
+        s = Protein()
+        s.import_pdb(self.params.pdb_file_name)
+        coords=s.get_xyz()
+
+        for n in centroidArray:
+            print "creating PDB for centroid: "+str(n)
+            self.data.structure.set_xyz(coords)#(self.Parent.post.coords)
+            multimer1 = M.Multimer(self.data.structure)
+            #self.structure.set_xyz(coords) # this was the old way, was not correct
+            #multimer1 = M.Multimer(self.structure) # same as directly above
+            multimer1.create_multimer(self.params.degree ,self.coordinateArray[n][3],np.array([self.coordinateArray[n][0],self.coordinateArray[n][1],self.coordinateArray[n][2]]))
+
+
+            # print the pdb file
+            multimer1.write_PDB("%s/assembly%s.pdb"%(self.OUTPUT_DIRECTORY,iterant))
+
+            # create the constraint:
+            measure = constraint.constraint_check(multimer1)
+
+            # ----------------------------- WRITING SOLUTION.DAT
+            l = []
+            f = []
+
+            # insert coordinates in the solution.dat file
+            f.append("assembly "+str(iterant)+" |")
+            for item in self.coordinateArray[n][: len(self.coordinateArray[n])-1]:
+                l.append(item)
+                f.append("%8.3f ")
+                #write constraint values
+            f.append("| ")
+            for item in measure:
+                l.append(item)
+                f.append("%8.3f ")
+            #write fitness
+            f.append("| %8.3f")
+            l.append(self.coordinateArray[n][-1])
+            # write average RMSD OF CLUSTER:
+            f.append("| %8.3f\n")
+            l.append(average_RMSD_ARRAY[iterant])
+
+            formatting=''.join(f)
+
+            clusters_file.write(formatting%tuple(l))
+
+            # --------------------------- WRITING TCL FILE
+            if iterant == 0:
+                tcl_file.write("mol new assembly"+str(iterant)+".pdb first 0 last -1 step 1 filebonds 1 autobonds 1 waitfor all \n")
+
+            else:
+                tcl_file.write("mol addfile assembly"+str(iterant)+".pdb type pdb first 0 last -1 step 1 filebonds 1 autobonds 1 waitfor all \n")
+
+            iterant += 1
+            
+        tcl_file.write("mol delrep 0 top \n\
+mol representation NewCartoon 0.300000 10.000000 4.100000 0 \n\
+mol color Chain \n\
+mol selection {all} \n\
+mol material Opaque \n\
+mol addrep top \n\
+mol selupdate 0 top 0 \n\
+mol colupdate 0 top 0 \n\
+mol scaleminmax top 0 0.000000 0.000000 \n\
+mol smoothrep top 0 0 \n\
+mol drawframes top 0 {now}")
+
+        clusters_file.close()
+        tcl_file.close()
+            
+            
+            
+            
+            
+            
+            
