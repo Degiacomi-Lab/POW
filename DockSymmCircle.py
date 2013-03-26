@@ -659,15 +659,15 @@ class Postprocess(PP):
             #self.OUTPUT_DIRECTORY=self.params.output_folder
             app = wx.App(False)
             frame = CnD.MainFrame(None, "Clustering interface",self.OUTPUT_DIRECTORY ,self.params, self.data, self)
-            frame.RMSDPanel.computeCluster()
+            frame.distancePanel.computeCluster()
             
             if self.params.cluster_threshold == "NA":
                 frame.Show()
                 app.MainLoop()
             else:
-                frame.RMSDPanel.convertCoordsAndExportPDB(self.params.cluster_threshold)
+                frame.distancePanel.convertCoordsAndExport(self.params.cluster_threshold)
 
-
+    #this function superseed the standard euclidean distance implemented in Default.py
     def computeDistance (self, data1, data2):            
         
         # create the first multimer
@@ -706,12 +706,13 @@ class Postprocess(PP):
         multimer2.create_multimer(self.params.degree,data2[3],np.array([data2[0],data2[1],data2[2]]))
         m2=multimer2.get_multimer_uxyz()[0][self.index]
 
-        # calculate RMSD between the 2
+        # calculate distance between the 2
         rmsd=self.align(m1,m2) # --> comes from Default.Postprocess.align()
         
         return rmsd
                 
-    def write_pdb(self, centroidArray, average_RMSD_ARRAY, coordinateArray):
+                
+    def make_output(self, centroidArray, average_RMSD_ARRAY, coordinateArray):
         
         self.coordinateArray = coordinateArray
                     
@@ -737,7 +738,7 @@ class Postprocess(PP):
             print 'ERROR: constraint_check function not found'
 
         
-#        if len(self.Parent.RMSDPanel.coordinateArray[0]) < 12: # usually 12 but modified here not to test HeteroMultimer
+#        if len(self.Parent.distancePanel.coordinateArray[0]) < 12: # usually 12 but modified here not to test HeteroMultimer
         print "extracting Simple multimer pdb"
 
         s = Protein()
