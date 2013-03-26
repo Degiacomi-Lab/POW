@@ -330,6 +330,9 @@ class Data:
 
 
     def get_index(self,atoms=["CA","CB"]):
+        
+        
+        
 
         #generate a dummy multimer
         multimer = M.Multimer(self.structure)
@@ -346,6 +349,9 @@ class Data:
                 for i in p_index:
                     self.index_receptor.append(i)
         #return self.index
+        
+        # extract the indexes of CA for the postprocessing session
+        
 
 
 class Space(S):
@@ -628,268 +634,79 @@ class Postprocess(PP):
 
 
     def run(self):
-        if rank == 0:
-
-            #create output directory for generated PDB
-            self.OUTPUT_DIRECTORY=self.params.output_folder
-            if os.path.isdir(self.OUTPUT_DIRECTORY)!=1:
-                os.mkdir(self.OUTPUT_DIRECTORY)
-
-            #use superclass method to filter acceptable solutions
-            self.log=self.select_solutions(self.params) # -> the result is in fact the self.filter_log already
-            print ">> %s solutions filtered"%len(self.log[:,1])
-            if len(self.log[:,1])==0:
-                return
-
-            self.coordinateArray = deepcopy(self.log) #[:, 0:len(self.log[0,:])].astype(float)
-            self.dummyMatrix = np.empty(len(self.coordinateArray)**2)
-            self.dummyMatrix.fill(100)
-            self.distanceMatrix = self.dummyMatrix.reshape(len(self.coordinateArray),len(self.coordinateArray))
-            self.dummyMatrix = []
-
-
-
-            total_size = (len(self.coordinateArray)**2)/2
-            binNo = size
-            indexes_per_bin = total_size / binNo
-
-            soustractor = 1
-            indexBinHash = {}
-            accumulator = 0
-
-            rankIterator = 0
-            lowBoundary = 0
-
-
-            # getting the sliced indexes
-            for i in xrange(0, len(self.distanceMatrix),1):
-                array_len = len(self.distanceMatrix[i]) -  soustractor
-                accumulator += array_len
-
-                if accumulator > indexes_per_bin:
-                    indexBinHash[rankIterator] = [lowBoundary, i]
-
-                    # change the parameters
-                    rankIterator += 1
-                    lowBoundary = i
-                    # empty the accumulator
-                    accumulator = 0
-
-
-                soustractor += 1
-
-            if lowBoundary < i:
-                indexBinHash[binNo-1] = [lowBoundary, i]
-
-
-            print ">> Starting distance matrix creation:\n"
-            print ">> clustering best solutions..."
-        else:
-            self.distanceMatrix = None
-            self.coordinateArray = None
-            indexBinHash = None
-
-
-        #synchronize all processers
-        comm.Barrier()
-        self.distanceMatrix=comm.bcast(self.distanceMatrix,root=0)
-        self.coordinateArray=comm.bcast(self.coordinateArray,root=0)
-        indexBinHash=comm.bcast(indexBinHash,root=0)
-        comm.Barrier()
-
-        exec 'import %s as constraint'%(self.constraint)
-
-        #clusters_file=open("%s/dist_matrix.dat"%self.params.output_folder,"w") # Xx this where you write the solution file
-
-        #generate a dummy multimer and extract the indexes of C alpha
+        
         multimer = M.Multimer(self.data.structure)
         multimer.create_multimer(2,10,np.array([0.0,0.0,0.0]))
-        [m,index]=multimer.atomselect(1,"*","*","CA",True) # -> extracting indexes of CA
+        [m,self.index]=multimer.atomselect(1,"*","*","CA",True) # -> extracting indexes of CA
 
         #load the monomeric structure positions (needed for resetting atom position after displacement)
         s = Protein()
         s.import_pdb(self.params.pdb_file_name)
         coords=s.get_xyz()
         self.coords = deepcopy(coords)
-
-        # ---------------------------- Depending on the number of solutions, use all the processors or just one of them
-
-        if len(self.coordinateArray) > (size *3):
-
-            ## creating variables to check for status of clustering of process 0
-            if rank == 0:
-                repetitions = indexBinHash[rank][1] - indexBinHash[rank][0]
-                totalIterations = len(self.coordinateArray) * repetitions
-                counter = 0
-                printresent = 1 # those are used not to repeat the state of the clustering
-                printPast = 0
-
-            counter = 0
-
-            pieceOfCoordinateArray = np.array([])
-
-            if rank in indexBinHash.keys():
-
-                #Starting the creation with 2 loops
-                for n in xrange(indexBinHash[rank][0],len(self.coordinateArray),1):
-                    #print ">> computing RMSDs for solution no: "+str(n+1)
-                    if n == indexBinHash[rank][1]:
-                        break
-                    for m in xrange (n,len(self.coordinateArray),1):
-                        # make sure you are not using the same structures against themselves
-                        if n == m:
-                            pass
-
-                        else:
-                            
-                            # create the first multimer
-                            if self.params.style=="flexible":
-                                #pick monomeric structure from database
-                                deform_coeffs=self.coordinateArray[n][(4+self.rec_dim):-1]
-                                pos_eig=self.data.proj[:,self.data.centroid]+deform_coeffs
-                                code,min_dist=vq(self.data.proj.transpose(),np.array([pos_eig]))
-                                target_frame=min_dist.argmin()
-                                coords=self.data.traj[:,target_frame]
-                                coords_reshaped=coords.reshape(len(coords)/3,3)
-                                self.data.structure.set_xyz(coords_reshaped)                         
-                            else:
-                                self.data.structure.set_xyz(coords)
-                
-                            #pos = np.array(C[cnt-1])[0:(4+self.rec_dim)].astype(float)
-                            multimer1 = M.Multimer(self.data.structure)
-                            multimer1.create_multimer(self.params.degree,self.coordinateArray[n][3],np.array([self.coordinateArray[n][0],self.coordinateArray[n][1],self.coordinateArray[n][2]]))
-                            m1=multimer1.get_multimer_uxyz()[0][index] # getting all the coordinates of m1
-
-                            #create the second multimer
-                            # create the first multimer
-                            if self.params.style=="flexible":
-                                #pick monomeric structure from database
-                                deform_coeffs=self.coordinateArray[m][(4+self.rec_dim):-1]
-                                pos_eig=self.data.proj[:,self.data.centroid]+deform_coeffs
-                                code,min_dist=vq(self.data.proj.transpose(),np.array([pos_eig]))
-                                target_frame=min_dist.argmin()
-                                coords=self.data.traj[:,target_frame]
-                                coords_reshaped=coords.reshape(len(coords)/3,3)
-                                self.data.structure.set_xyz(coords_reshaped)                         
-                            else:
-                                self.data.structure.set_xyz(coords)
-                                
-                            multimer2 = M.Multimer(self.data.structure)
-                            multimer2.create_multimer(self.params.degree,self.coordinateArray[m][3],np.array([self.coordinateArray[m][0],self.coordinateArray[m][1],self.coordinateArray[m][2]]))
-                            m2=multimer2.get_multimer_uxyz()[0][index]
-
-                            # calculate RMSD between the 2
-                            rmsd=self.align(m1,m2) # --> comes from Default.Postprocess.align()
-                            self.distanceMatrix[n][m] = rmsd
-
-                            if rank == 0:
-                                counter += 1.0
-                                printPresent = int((counter / totalIterations) * 100)
-                                if (printPresent%10) == 0 and printPresent != printPast:
-                                    print "> ~"+str( printPresent )+" % structures clustered "
-                                    printPast = printPresent
-
-                pieceOfCoordinateArray = self.distanceMatrix[indexBinHash[rank][0]:indexBinHash[rank][1],:]
-                #print "process "+str(rank)+" finished"
-
-            comm.Barrier()
-            pieces = comm.gather(pieceOfCoordinateArray,root=0)
-            comm.Barrier()
-
-            if rank == 0:
-                if int( (counter / totalIterations) * 100.00) != 100:
-                    print "> ~100 % structures clustered "
-
-                self.distanceMatrix = []
-                for elem in pieces:
-                    if len(elem) < 2:
-                        pass
-                    else:
-                        for arrays in elem:
-                            self.distanceMatrix.append(arrays)
-
-                lastRow = np.empty(len(self.coordinateArray))
-                lastRow.fill(100)
-
-                self.distanceMatrix.append(lastRow)
-                self.distanceMatrix = np.array(self.distanceMatrix)
-                np.transpose(self.distanceMatrix)
-#                np.savetxt('coordinateArray.txt', self.coordinateArray) # coordinateArray[0:50,0:50]
-#                np.savetxt('np_matrix.txt', self.distanceMatrix) # distanceMatrix[0:50]
-
-                
-
-        else:
-            if rank == 0:
-                print ">> less than "+str(size*3)+" solutions, proceeding ..."
-
-                for n in xrange(0,len(self.coordinateArray),1):
-                    #print ">> computing RMSDs for solution no: "+str(n+1)
-                    #if n == indexBinHash[rank][1]:
-                        #break
-                    for m in xrange (n,len(self.coordinateArray),1):
-                        # make sure you are not using the same structures against themselves
-                        if n == m:
-                            pass
-
-                        else:
-
-                            # create the first multimer
-
-                            if self.params.style=="flexible":
-                                #pick monomeric structure from database
-                                deform_coeffs=self.coordinateArray[n][(4+self.rec_dim):-1]
-                                pos_eig=self.data.proj[:,self.data.centroid]+deform_coeffs
-                                code,min_dist=vq(self.data.proj.transpose(),np.array([pos_eig]))
-                                target_frame=min_dist.argmin()
-                                coords=self.data.traj[:,target_frame]
-                                coords_reshaped=coords.reshape(len(coords)/3,3)
-                                self.data.structure.set_xyz(coords_reshaped)                         
-                            else:
-                                self.data.structure.set_xyz(coords)
-                                
-                            #pos = np.array(C[cnt-1])[0:(4+self.rec_dim)].astype(float)
-                            multimer1 = M.Multimer(self.data.structure)
-                            multimer1.create_multimer(self.params.degree,self.coordinateArray[n][3],np.array([self.coordinateArray[n][0],self.coordinateArray[n][1],self.coordinateArray[n][2]]))
-                            m1=multimer1.get_multimer_uxyz()[0][index] # getting all the coordinates of m1
-
-                            #create the second multimer
-                            if self.params.style=="flexible":
-                                #pick monomeric structure from database
-                                deform_coeffs=self.coordinateArray[m][(4+self.rec_dim):-1]
-                                pos_eig=self.data.proj[:,self.data.centroid]+deform_coeffs
-                                code,min_dist=vq(self.data.proj.transpose(),np.array([pos_eig]))
-                                target_frame=min_dist.argmin()
-                                coords=self.data.traj[:,target_frame]
-                                coords_reshaped=coords.reshape(len(coords)/3,3)
-                                self.data.structure.set_xyz(coords_reshaped)                         
-                            else:
-                                self.data.structure.set_xyz(coords)
-                                
-                            multimer2 = M.Multimer(self.data.structure)
-                            multimer2.create_multimer(self.params.degree,self.coordinateArray[m][3],np.array([self.coordinateArray[m][0],self.coordinateArray[m][1],self.coordinateArray[m][2]]))
-                            m2=multimer2.get_multimer_uxyz()[0][index]
-
-                            # calculate RMSD between the 2
-                            rmsd=self.align(m1,m2) # --> comes from Default.Postprocess.align()
-                            self.distanceMatrix[n][m] = rmsd
-
-
+        
+        Matrix_creator = CnD.Matrix_creator(self.params, self.data, self)
+        Matrix_creator.computeMatrix()
+        
+        comm.Barrier()
         if rank == 0:
-            np.savetxt('coordinateArray.txt', self.coordinateArray)
-            np.savetxt('np_matrix.txt', self.distanceMatrix)
-            
-            # launch the Clustering and tree drawing module
+            self.OUTPUT_DIRECTORY=self.params.output_folder
             app = wx.App(False)
             frame = CnD.MainFrame(None, "Clustering interface",self.OUTPUT_DIRECTORY ,self.params, self.data, self)
-            frame.RMSDPanel.computeMatrix()
+            frame.RMSDPanel.computeCluster()
+            
             if self.params.cluster_threshold == "NA":
                 frame.Show()
                 app.MainLoop()
             else:
                 frame.RMSDPanel.convertCoordsAndExportPDB(self.params.cluster_threshold)
                 
-    def write_pdb(self, centroidArray, average_RMSD_ARRAY):
+    def computeDistance (self, data1, data2):            
+        
+        # create the first multimer
+        if self.params.style=="flexible":
+            #pick monomeric structure from database
+            deform_coeffs=data1[(4+self.rec_dim):-1]
+            pos_eig=self.data.proj[:,self.data.centroid]+deform_coeffs
+            code,min_dist=vq(self.data.proj.transpose(),np.array([pos_eig]))
+            target_frame=min_dist.argmin()
+            coords=self.data.traj[:,target_frame]
+            coords_reshaped=coords.reshape(len(coords)/3,3)
+            self.data.structure.set_xyz(coords_reshaped)                         
+        else:
+            self.data.structure.set_xyz(self.coords)
+
+        #pos = np.array(C[cnt-1])[0:(4+self.rec_dim)].astype(float)
+        multimer1 = M.Multimer(self.data.structure)
+        multimer1.create_multimer(self.params.degree,data1[3],np.array([data1[0],data1[1],data1[2]]))
+        m1=multimer1.get_multimer_uxyz()[0][self.index] # getting all the coordinates of m1
+
+        #create the second multimer
+        # create the first multimer
+        if self.params.style=="flexible":
+            #pick monomeric structure from database
+            deform_coeffs=data2[(4+self.rec_dim):-1]
+            pos_eig=self.data.proj[:,self.data.centroid]+deform_coeffs
+            code,min_dist=vq(self.data.proj.transpose(),np.array([pos_eig]))
+            target_frame=min_dist.argmin()
+            coords=self.data.traj[:,target_frame]
+            coords_reshaped=coords.reshape(len(coords)/3,3)
+            self.data.structure.set_xyz(coords_reshaped)                         
+        else:
+            self.data.structure.set_xyz(self.coords)
+            
+        multimer2 = M.Multimer(self.data.structure)
+        multimer2.create_multimer(self.params.degree,data2[3],np.array([data2[0],data2[1],data2[2]]))
+        m2=multimer2.get_multimer_uxyz()[0][self.index]
+
+        # calculate RMSD between the 2
+        rmsd=self.align(m1,m2) # --> comes from Default.Postprocess.align()
+        
+        return rmsd
+                
+    def write_pdb(self, centroidArray, average_RMSD_ARRAY, coordinateArray):
+        
+        self.coordinateArray = coordinateArray
                     
         iterant = 0 # this iterator is used (in a bad way :( ) to select the right average RMSD value when iterating over the centroids
 

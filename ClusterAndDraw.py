@@ -8,12 +8,181 @@ from scipy.cluster.vq import *
 import copy
 import string
 
-#import Multimer as M
-#import AssemblyHeteroMultimer as AH # _CHANGED_
-#from Protein import Protein
-#import flexibility_new as F # _CHANGED_
-
 import os, sys
+from copy import deepcopy
+
+from mpi4py import MPI
+comm = MPI.COMM_WORLD
+size = comm.Get_size()
+rank = comm.Get_rank()
+
+class Matrix_creator:
+    
+    def __init__ (self, params, data, post):
+    #create output directory for generated PDB
+        self.params = params
+        self.data = data
+        self.post = post
+        
+    def computeMatrix(self):
+        if rank == 0:
+            
+            #use superclass method to filter acceptable solutions
+            self.log=self.post.select_solutions(self.params) # -> the result is in fact the self.filter_log already
+            print ">> %s solutions filtered"%len(self.log[:,1])
+            if len(self.log[:,1])==0:
+                return
+    
+            self.coordinateArray = deepcopy(self.log) #[:, 0:len(self.log[0,:])].astype(float)
+            self.dummyMatrix = np.empty(len(self.coordinateArray)**2)
+            self.dummyMatrix.fill(100)
+            self.distanceMatrix = self.dummyMatrix.reshape(len(self.coordinateArray),len(self.coordinateArray))
+            self.dummyMatrix = []
+    
+    
+    
+            total_size = (len(self.coordinateArray)**2)/2
+            binNo = size
+            indexes_per_bin = total_size / binNo
+    
+            soustractor = 1
+            indexBinHash = {}
+            accumulator = 0
+    
+            rankIterator = 0
+            lowBoundary = 0
+    
+    
+            # getting the sliced indexes
+            for i in xrange(0, len(self.distanceMatrix),1):
+                array_len = len(self.distanceMatrix[i]) -  soustractor
+                accumulator += array_len
+    
+                if accumulator > indexes_per_bin:
+                    indexBinHash[rankIterator] = [lowBoundary, i]
+    
+                    # change the parameters
+                    rankIterator += 1
+                    lowBoundary = i
+                    # empty the accumulator
+                    accumulator = 0
+    
+    
+                soustractor += 1
+    
+            if lowBoundary < i:
+                indexBinHash[binNo-1] = [lowBoundary, i]
+    
+    
+            print ">> Starting distance matrix creation:\n"
+            print ">> clustering best solutions..."
+        else:
+            self.distanceMatrix = None
+            self.coordinateArray = None
+            indexBinHash = None
+    
+    
+        #synchronize all processors
+        comm.Barrier()
+        self.distanceMatrix=comm.bcast(self.distanceMatrix,root=0)
+        self.coordinateArray=comm.bcast(self.coordinateArray,root=0)
+        indexBinHash=comm.bcast(indexBinHash,root=0)
+        comm.Barrier()
+    
+        exec 'import %s as constraint'%(self.post.constraint)
+        
+        # ---------------------------- Depending on the number of solutions, use all the processors or just one of them
+    
+        if len(self.coordinateArray) > (size *3):
+    
+            ## creating variables to check for status of clustering of process 0
+            if rank == 0:
+                repetitions = indexBinHash[rank][1] - indexBinHash[rank][0]
+                totalIterations = len(self.coordinateArray) * repetitions
+                counter = 0
+                printresent = 1 # those are used not to repeat the state of the clustering
+                printPast = 0
+    
+            counter = 0
+    
+            pieceOfCoordinateArray = np.array([])
+    
+            if rank in indexBinHash.keys():
+    
+                #Starting the creation with 2 loops
+                for n in xrange(indexBinHash[rank][0],len(self.coordinateArray),1):
+                    #print ">> computing RMSDs for solution no: "+str(n+1)
+                    if n == indexBinHash[rank][1]:
+                        break
+                    for m in xrange (n,len(self.coordinateArray),1):
+                        # make sure you are not using the same structures against themselves
+                        if n == m:
+                            pass
+    
+                        else:
+                            
+                            self.distanceMatrix[n][m] = self.post.computeDistance(self.coordinateArray[n],self.coordinateArray[m])
+    
+                            if rank == 0:
+                                counter += 1.0
+                                printPresent = int((counter / totalIterations) * 100)
+                                if (printPresent%10) == 0 and printPresent != printPast:
+                                    print "> ~"+str( printPresent )+" % structures clustered "
+                                    printPast = printPresent
+    
+                pieceOfCoordinateArray = self.distanceMatrix[indexBinHash[rank][0]:indexBinHash[rank][1],:]
+                #print "process "+str(rank)+" finished"
+    
+            comm.Barrier()
+            pieces = comm.gather(pieceOfCoordinateArray,root=0)
+            comm.Barrier()
+    
+            if rank == 0:
+                if int( (counter / totalIterations) * 100.00) != 100:
+                    print "> ~100 % structures clustered "
+    
+                self.distanceMatrix = []
+                for elem in pieces:
+                    if len(elem) < 2:
+                        pass
+                    else:
+                        for arrays in elem:
+                            self.distanceMatrix.append(arrays)
+    
+                lastRow = np.empty(len(self.coordinateArray))
+                lastRow.fill(100)
+    
+                self.distanceMatrix.append(lastRow)
+                self.distanceMatrix = np.array(self.distanceMatrix)
+                np.transpose(self.distanceMatrix)
+    #                np.savetxt('coordinateArray.txt', self.coordinateArray) # coordinateArray[0:50,0:50]
+    #                np.savetxt('np_matrix.txt', self.distanceMatrix) # distanceMatrix[0:50]
+    
+                
+    
+        else:
+            if rank == 0:
+                print ">> less than "+str(size*3)+" solutions, proceeding ..."
+    
+                for n in xrange(0,len(self.coordinateArray),1):
+                    #print ">> computing RMSDs for solution no: "+str(n+1)
+                    #if n == indexBinHash[rank][1]:
+                        #break
+                    for m in xrange (n,len(self.coordinateArray),1):
+                        # make sure you are not using the same structures against themselves
+                        if n == m:
+                            pass
+    
+                        else:
+    
+                            # create the first multimer
+    
+                            self.distanceMatrix[n][m] = self.post.computeDistance(self.coordinateArray[n],self.coordinateArray[m])
+    
+    
+        if rank == 0:
+            np.savetxt('coordinateArray.txt', self.coordinateArray)
+            np.savetxt('np_matrix.txt', self.distanceMatrix)
 
 
 class App(wx.App):
@@ -95,9 +264,6 @@ class MakeWork (wx.Panel):
     def DrawRMSDTree (self, event):
         self.Parent.treePanel.plotFigure(self.arrayReadyforDrawing)
 
-    #def DrawFromPOW(self):
-        #self.Parent.treePanel.plotFigure(self.arrayReadyforDrawing)
-        #print "dendogram drawn"
 
     def selectRMSD (self, event):
 
@@ -167,10 +333,13 @@ class MakeWork (wx.Panel):
             centroidArray = copy.deepcopy(self.Parent.RMSDPanel.RMSDThresholdHash[sortedRMSDArray[-1]][0])
             average_RMSD_ARRAY = copy.deepcopy(self.Parent.RMSDPanel.RMSDThresholdHash[sortedRMSDArray[-1]][1])
             
-        self.Parent.post.write_pdb( centroidArray,average_RMSD_ARRAY)
+        self.Parent.post.write_pdb( centroidArray,average_RMSD_ARRAY, self.coordinateArray)
+        
+    
+        
 
 
-    def computeMatrix (self):
+    def computeCluster (self):
 
         #self.Parent.treePanel.Center()
 
