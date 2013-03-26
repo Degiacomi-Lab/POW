@@ -635,6 +635,7 @@ class Postprocess(PP):
 
     def run(self):
         
+        
         multimer = M.Multimer(self.data.structure)
         multimer.create_multimer(2,10,np.array([0.0,0.0,0.0]))
         [m,self.index]=multimer.atomselect(1,"*","*","CA",True) # -> extracting indexes of CA
@@ -649,8 +650,13 @@ class Postprocess(PP):
         Matrix_creator.computeMatrix()
         
         comm.Barrier()
+        self.OUTPUT_DIRECTORY=self.params.output_folder
         if rank == 0:
-            self.OUTPUT_DIRECTORY=self.params.output_folder
+            
+            if os.path.isdir(self.OUTPUT_DIRECTORY)!=1:
+                os.mkdir(self.OUTPUT_DIRECTORY)
+            
+            #self.OUTPUT_DIRECTORY=self.params.output_folder
             app = wx.App(False)
             frame = CnD.MainFrame(None, "Clustering interface",self.OUTPUT_DIRECTORY ,self.params, self.data, self)
             frame.RMSDPanel.computeCluster()
@@ -660,7 +666,8 @@ class Postprocess(PP):
                 app.MainLoop()
             else:
                 frame.RMSDPanel.convertCoordsAndExportPDB(self.params.cluster_threshold)
-                
+
+
     def computeDistance (self, data1, data2):            
         
         # create the first multimer
@@ -739,11 +746,22 @@ class Postprocess(PP):
 
         for n in centroidArray:
             print "creating PDB for centroid: "+str(n)
-            self.data.structure.set_xyz(coords)#(self.Parent.post.coords)
+            # create the first multimer
+            if self.params.style=="flexible":
+                #pick monomeric structure from database
+                deform_coeffs=coordinateArray[n][(4+self.rec_dim):-1]
+                pos_eig=self.data.proj[:,self.data.centroid]+deform_coeffs
+                code,min_dist=vq(self.data.proj.transpose(),np.array([pos_eig]))
+                target_frame=min_dist.argmin()
+                coords=self.data.traj[:,target_frame]
+                coords_reshaped=coords.reshape(len(coords)/3,3)
+                self.data.structure.set_xyz(coords_reshaped)                         
+            else:
+                self.data.structure.set_xyz(coords)
+    
+            #pos = np.array(C[cnt-1])[0:(4+self.rec_dim)].astype(float)
             multimer1 = M.Multimer(self.data.structure)
-            #self.structure.set_xyz(coords) # this was the old way, was not correct
-            #multimer1 = M.Multimer(self.structure) # same as directly above
-            multimer1.create_multimer(self.params.degree ,self.coordinateArray[n][3],np.array([self.coordinateArray[n][0],self.coordinateArray[n][1],self.coordinateArray[n][2]]))
+            multimer1.create_multimer(self.params.degree ,coordinateArray[n][3],np.array([coordinateArray[n][0],coordinateArray[n][1],coordinateArray[n][2]]))
 
 
             # print the pdb file

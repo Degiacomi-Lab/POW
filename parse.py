@@ -24,16 +24,24 @@ comm = MPI.COMM_WORLD
 size = comm.Get_size()
 rank = comm.Get_rank()
 
+if rank == 0:
+    print '\n>        Parallel Optimization Workbench (POW)         <'
+    print   '> (c) 2012, Laboratory for Biomolecular Modeling, EPFL <'
+    print   '>                                                      <'
+    print   '>               -postprocess results -                 <\n'
+
 #check input params consistency
 if len(sys.argv)!=3 and len(sys.argv)!=4:
-    print "\nERROR: parameters are not what I expected!"
-    print "USAGE: ./parse.py module input_file [logfile]\n"
+    if rank == 0:
+        print "\nERROR: parameters are not what I expected!"
+        print "USAGE: ./parse.py module input_file [logfile]\n"
     sys.exit(1)
  
 #get input file
 infile=str(sys.argv[2])
 if os.path.isfile(infile)!=1 :
-    print "ERROR: input file not found!"
+    if rank == 0:
+        print "ERROR: input file not found!"
     sys.exit(1)
 
 #get program installation location and declare an environment variable (needed by some modules)

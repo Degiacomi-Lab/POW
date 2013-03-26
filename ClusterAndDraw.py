@@ -89,7 +89,7 @@ class Matrix_creator:
         indexBinHash=comm.bcast(indexBinHash,root=0)
         comm.Barrier()
     
-        exec 'import %s as constraint'%(self.post.constraint)
+        #exec 'import %s as constraint'%(self.post.constraint)
         
         # ---------------------------- Depending on the number of solutions, use all the processors or just one of them
     
@@ -318,12 +318,11 @@ class MakeWork (wx.Panel):
         sortedRMSDArray =  copy.deepcopy(self.Parent.RMSDPanel.RMSDThresholdHash.keys())# this contains the sorted RMSDs of the RMSD threshold hash containing the RMDS and the corresponding centroid
         sortedRMSDArray.sort()
 
-        
 
         # parse the sorted array and return an array of the centroids and within RMSD values with RMSDs below threshold
         for e in range(len(sortedRMSDArray)):
+            
             if float(selectedRMSD) < float(sortedRMSDArray[e]):
-
                 centroidArray = copy.deepcopy(self.Parent.RMSDPanel.RMSDThresholdHash[sortedRMSDArray[e-1]][0])
                 average_RMSD_ARRAY = copy.deepcopy(self.Parent.RMSDPanel.RMSDThresholdHash[sortedRMSDArray[e-1]][1])
                 break
@@ -858,7 +857,7 @@ class MakeWork (wx.Panel):
             #print "indexes assiged to clusters so far:"+ str(self.clusteredIndex)
             print " > RMSDs remaining: "+str(len(self.distanceMatrixDummy[self.distanceMatrixDummy < 100]))+" | number of clusters: "+str(len(self.clusterHash.keys()))
 
-
+            
             # restart the clusterSwitch
             ClusterMergingSwitch = False
 
@@ -1295,7 +1294,7 @@ class MakeWork (wx.Panel):
         RMSD_from_centroid = []
         RMSDs_to_be_averaged = []
         array_of_indexes = []
-
+        
         for centroid in centroidArr:
             RMSDs_to_be_averaged = []
 
@@ -1318,7 +1317,6 @@ class MakeWork (wx.Panel):
 
 
         self.RMSDThresholdHash[rmsd] = [centroidArr, RMSD_from_centroid]
-
 
 
 # --------------------------------------------------------------- TREE PANEL
