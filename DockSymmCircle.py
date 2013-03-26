@@ -330,6 +330,9 @@ class Data:
 
 
     def get_index(self,atoms=["CA","CB"]):
+        
+        
+        
 
         #generate a dummy multimer
         multimer = M.Multimer(self.structure)
@@ -346,6 +349,9 @@ class Data:
                 for i in p_index:
                     self.index_receptor.append(i)
         #return self.index
+        
+        # extract the indexes of CA for the postprocessing session
+        
 
 
 class Space(S):
@@ -628,6 +634,17 @@ class Postprocess(PP):
 
 
     def run(self):
+        
+        multimer = M.Multimer(self.data.structure)
+        multimer.create_multimer(2,10,np.array([0.0,0.0,0.0]))
+        [m,self.index]=multimer.atomselect(1,"*","*","CA",True) # -> extracting indexes of CA
+
+        #load the monomeric structure positions (needed for resetting atom position after displacement)
+        s = Protein()
+        s.import_pdb(self.params.pdb_file_name)
+        coords=s.get_xyz()
+        self.coords = deepcopy(coords)
+        
         Matrix_creator = CnD.Matrix_creator(self.params, self.data, self)
         Matrix_creator.computeMatrix()
         
@@ -644,17 +661,7 @@ class Postprocess(PP):
             else:
                 frame.RMSDPanel.convertCoordsAndExportPDB(self.params.cluster_threshold)
                 
-    def computeDistance (self, data1, data2):
-        
-        multimer = M.Multimer(self.data.structure)
-        multimer.create_multimer(2,10,np.array([0.0,0.0,0.0]))
-        [m,index]=multimer.atomselect(1,"*","*","CA",True) # -> extracting indexes of CA
-
-        #load the monomeric structure positions (needed for resetting atom position after displacement)
-        s = Protein()
-        s.import_pdb(self.params.pdb_file_name)
-        coords=s.get_xyz()
-        self.coords = deepcopy(coords)
+    def computeDistance (self, data1, data2):            
         
         # create the first multimer
         if self.params.style=="flexible":
@@ -667,12 +674,12 @@ class Postprocess(PP):
             coords_reshaped=coords.reshape(len(coords)/3,3)
             self.data.structure.set_xyz(coords_reshaped)                         
         else:
-            self.data.structure.set_xyz(coords)
+            self.data.structure.set_xyz(self.coords)
 
         #pos = np.array(C[cnt-1])[0:(4+self.rec_dim)].astype(float)
         multimer1 = M.Multimer(self.data.structure)
         multimer1.create_multimer(self.params.degree,data1[3],np.array([data1[0],data1[1],data1[2]]))
-        m1=multimer1.get_multimer_uxyz()[0][index] # getting all the coordinates of m1
+        m1=multimer1.get_multimer_uxyz()[0][self.index] # getting all the coordinates of m1
 
         #create the second multimer
         # create the first multimer
@@ -686,11 +693,11 @@ class Postprocess(PP):
             coords_reshaped=coords.reshape(len(coords)/3,3)
             self.data.structure.set_xyz(coords_reshaped)                         
         else:
-            self.data.structure.set_xyz(coords)
+            self.data.structure.set_xyz(self.coords)
             
         multimer2 = M.Multimer(self.data.structure)
         multimer2.create_multimer(self.params.degree,data2[3],np.array([data2[0],data2[1],data2[2]]))
-        m2=multimer2.get_multimer_uxyz()[0][index]
+        m2=multimer2.get_multimer_uxyz()[0][self.index]
 
         # calculate RMSD between the 2
         rmsd=self.align(m1,m2) # --> comes from Default.Postprocess.align()
@@ -793,6 +800,10 @@ mol drawframes top 0 {now}")
 
         clusters_file.close()
         tcl_file.close()
+            
+            
+            
+            
             
             
             
