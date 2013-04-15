@@ -63,7 +63,7 @@ class Parser(R):
         self.add('trajectory','trajectory','str',"NA")
         self.add('trajSelection','trajselection','array str',np.array(["NA"]))
         self.add('topology','topology','str',"NA")
-
+        self.add('frameDistancePenalty','frame_distance','float',10.0)
         #rigid assembly flags
         self.add('monomer','pdb_file_name','str',"NA")
 
@@ -71,7 +71,7 @@ class Parser(R):
         self.add('receptor','receptor','str',"NA")
         self.add('boundaryMaxReceptor','high_input_rec','array float',"NA")
         self.add('boundaryMinReceptor','low_input_rec','array float',"NA")
-        self.add('z_padding','pad','int',10)
+        self.add('z_padding','pad','int',5.0)
 
 
     def check_variables(self):
@@ -273,6 +273,7 @@ class Data:
                     print "ERROR: PCA failed, aborting!"
                     sys.exit(1)
 
+
             #compute projections centroid
             try:
                 self.centroid=flexibility.clusterize(self.proj)
@@ -330,9 +331,6 @@ class Data:
 
 
     def get_index(self,atoms=["CA","CB"]):
-        
-        
-        
 
         #generate a dummy multimer
         multimer = M.Multimer(self.structure)
@@ -441,10 +439,14 @@ class Space(S):
 
 
         #add eigenvector fluctuations in search space
-        for i in xrange(0,len(data.eigenspace_size),1):
-            self.low[4+rec_dim+i]=-data.eigenspace_size[i]
-            self.high[4+rec_dim+i]=data.eigenspace_size[i]
+        #for i in xrange(0,len(data.eigenspace_size),1):
+        #    self.low[4+rec_dim+i]=-data.eigenspace_size[i]
+        #    self.high[4+rec_dim+i]=data.eigenspace_size[i]
 
+	print "PROJ SHAPE: %s %s"%(data.proj.shape[0],data.proj.shape[1])
+        for i in xrange(0,len(data.eigenspace_size),1):
+            self.low[4+rec_dim+i]=data.proj[i,:].min()
+            self.high[4+rec_dim+i]=data.proj[i,:].max()
 
         #final check for all boundary conditions consistency (cause we're paranoid)
         if (self.low>self.high).any():
@@ -471,6 +473,7 @@ class Fitness:
 
     def __init__(self,data,params):
 
+	self.params=params
         self.style=params.style
         self.clash=params.detect_clash
         self.target=params.target
@@ -509,15 +512,23 @@ class Fitness:
         exec 'import %s as constraint'%(self.constraint)
         import Multimer as M
 
+	frame_penalty=0.0
+
         if self.style=="flexible":
         #pick monomeric structure from database
             deform_coeffs=pos[(4+self.rec_dim):len(pos)]
-            pos_eig=self.data.proj[:,self.data.centroid]+deform_coeffs
-            code,min_dist=vq(self.data.proj.transpose(),np.array([pos_eig]))
+            #pos_eig=self.data.proj[:,self.data.centroid]+deform_coeffs
+            code,min_dist=vq(self.data.proj.transpose(),np.array([deform_coeffs]))
+            #code,min_dist=vq(self.data.proj.transpose(),np.array([pos_eig]))
             target_frame=min_dist.argmin()
             coords=self.data.traj[:,target_frame]
             coords_reshaped=coords.reshape(len(coords)/3,3)
             self.data.structure.set_xyz(coords_reshaped)
+
+	    #penalize solutions too far from the sampled space
+	    #if min_dist.min()>self.params.frame_distance:
+	    #    frame_penalty=min_dist.min()-self.params.frame_distance
+		#print "penalty %s : %s"%(num,frame_penalty)
 
         #assemble multimer
         self.multimer = M.Multimer(self.data.structure)
@@ -552,9 +563,9 @@ class Fitness:
         #detect clashes
         if self.clash:
             energy=self.interface_vdw()
-            return self.c1*energy+(1-self.c1)*distance
+            return self.c1*energy+(1-self.c1)*distance+frame_penalty
         else:
-            return distance
+            return distance+frame_penalty
 
 
     def interface_vdw(self):
@@ -674,8 +685,9 @@ class Postprocess(PP):
         if self.params.style=="flexible":
             #pick monomeric structure from database
             deform_coeffs=data1[(4+self.rec_dim):-1]
-            pos_eig=self.data.proj[:,self.data.centroid]+deform_coeffs
-            code,min_dist=vq(self.data.proj.transpose(),np.array([pos_eig]))
+            #pos_eig=self.data.proj[:,self.data.centroid]+deform_coeffs
+            #code,min_dist=vq(self.data.proj.transpose(),np.array([pos_eig]))
+            code,min_dist=vq(self.data.proj.transpose(),np.array([deform_coeffs]))
             target_frame=min_dist.argmin()
             coords=self.data.traj[:,target_frame]
             coords_reshaped=coords.reshape(len(coords)/3,3)
@@ -693,8 +705,9 @@ class Postprocess(PP):
         if self.params.style=="flexible":
             #pick monomeric structure from database
             deform_coeffs=data2[(4+self.rec_dim):-1]
-            pos_eig=self.data.proj[:,self.data.centroid]+deform_coeffs
-            code,min_dist=vq(self.data.proj.transpose(),np.array([pos_eig]))
+            #pos_eig=self.data.proj[:,self.data.centroid]+deform_coeffs
+            #code,min_dist=vq(self.data.proj.transpose(),np.array([pos_eig]))
+            code,min_dist=vq(self.data.proj.transpose(),np.array([deform_coeffs]))
             target_frame=min_dist.argmin()
             coords=self.data.traj[:,target_frame]
             coords_reshaped=coords.reshape(len(coords)/3,3)
@@ -751,8 +764,9 @@ class Postprocess(PP):
             if self.params.style=="flexible":
                 #pick monomeric structure from database
                 deform_coeffs=coordinateArray[n][(4+self.rec_dim):-1]
-                pos_eig=self.data.proj[:,self.data.centroid]+deform_coeffs
-                code,min_dist=vq(self.data.proj.transpose(),np.array([pos_eig]))
+                #pos_eig=self.data.proj[:,self.data.centroid]+deform_coeffs
+                #code,min_dist=vq(self.data.proj.transpose(),np.array([pos_eig]))
+                code,min_dist=vq(self.data.proj.transpose(),np.array([deform_coeffs]))
                 target_frame=min_dist.argmin()
                 coords=self.data.traj[:,target_frame]
                 coords_reshaped=coords.reshape(len(coords)/3,3)
