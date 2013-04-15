@@ -212,16 +212,16 @@ class Space:
         while test.any() :
             p_tmp[test]=2*self.high[test]-p[test]
             p[test]=deepcopy(p_tmp[test])
+            v[test]*=-1
             test=np.logical_and(p>self.high,self.boundary_type==1)
-        v[test]*=-1
 
         #low boundary
         test=np.logical_and(p<self.low,self.boundary_type==1)
         while test.any() :
             p_tmp[test]=2*self.low[test]-p[test]
             p[test]=deepcopy(p_tmp[test])
+            v[test]*=-1
             test=np.logical_and(p<self.low,self.boundary_type==1)
-        v[test]*=-1
 
         return p,v
 
