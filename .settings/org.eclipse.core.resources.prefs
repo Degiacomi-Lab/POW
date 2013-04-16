@@ -1,17 +1,9 @@
 eclipse.preferences.version=1
-<<<<<<< HEAD
 encoding/CCC_simulMap.py=utf-8
 encoding/ClusterAndDraw.py=utf-8
 encoding/Default.py=utf-8
 encoding/DockSymmCircle.py=utf-8
 encoding/HeteroMultimer.py=utf-8
 encoding/POW.py=utf-8
-=======
 encoding/AssemblyHeteroMultimer.py=utf-8
-encoding/ClusterAndDraw.py=utf-8
-encoding/Default.py=utf-8
-encoding/DockSymmCircle.py=utf-8
-encoding/HeteroMultimer.py=utf-8
-encoding/POW.py=utf-8
 encoding/flexibility.py=utf-8
->>>>>>> branch 'master' of git@github.com:degiacom/POW
