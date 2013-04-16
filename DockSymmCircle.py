@@ -443,11 +443,15 @@ class Space(S):
         #    self.low[4+rec_dim+i]=-data.eigenspace_size[i]
         #    self.high[4+rec_dim+i]=data.eigenspace_size[i]
 
+        #print "PROJ SHAPE: %s %s"%(data.proj.shape[0],data.proj.shape[1])
+        #for i in xrange(0,len(data.eigenspace_size),1):
+        #    self.low[4+rec_dim+i]=-data.eigenspace_size[i]
+        #    self.high[4+rec_dim+i]=data.eigenspace_size[i]
+
 	    #print "PROJ SHAPE: %s %s"%(data.proj.shape[0],data.proj.shape[1])
         for i in xrange(0,len(data.eigenspace_size),1):
             self.low[4+rec_dim+i]=data.proj[i,:].min()
             self.high[4+rec_dim+i]=data.proj[i,:].max()
-
         #final check for all boundary conditions consistency (cause we're paranoid)
         if (self.low>self.high).any():
             print 'ERROR: a lower boundary condition is greater than a higher one'
@@ -473,7 +477,7 @@ class Fitness:
 
     def __init__(self,data,params):
 
-	self.params=params
+        self.params=params
         self.style=params.style
         self.clash=params.detect_clash
         self.target=params.target
@@ -512,7 +516,7 @@ class Fitness:
         exec 'import %s as constraint'%(self.constraint)
         import Multimer as M
 
-	frame_penalty=0.0
+        frame_penalty=0.0
 
         if self.style=="flexible":
         #pick monomeric structure from database
@@ -525,10 +529,10 @@ class Fitness:
             coords_reshaped=coords.reshape(len(coords)/3,3)
             self.data.structure.set_xyz(coords_reshaped)
 
-	    #penalize solutions too far from the sampled space
-	    #if min_dist.min()>self.params.frame_distance:
-	    #    frame_penalty=min_dist.min()-self.params.frame_distance
-		#print "penalty %s : %s"%(num,frame_penalty)
+        #penalize solutions too far from the sampled space
+        #if min_dist.min()>self.params.frame_distance:
+        #    frame_penalty=min_dist.min()-self.params.frame_distance
+        #print "penalty %s : %s"%(num,frame_penalty)
 
         #assemble multimer
         self.multimer = M.Multimer(self.data.structure)
@@ -725,7 +729,10 @@ class Postprocess(PP):
         return rmsd
                 
                 
-    def make_output(self, centroidArray, average_RMSD_ARRAY, coordinateArray):
+    def make_output(self, centroidArray, average_RMSD_ARRAY, coordinateArray, clusteredIndexArray):
+        print clusteredIndexArray
+        print len(clusteredIndexArray)
+        
         
         self.coordinateArray = coordinateArray
                     
@@ -751,15 +758,25 @@ class Postprocess(PP):
             print 'ERROR: constraint_check function not found'
 
         
-#        if len(self.Parent.distancePanel.coordinateArray[0]) < 12: # usually 12 but modified here not to test HeteroMultimer
         print "extracting Simple multimer pdb"
 
         s = Protein()
         s.import_pdb(self.params.pdb_file_name)
         coords=s.get_xyz()
-
+        
+        # add the indexes of the non clustered indexes to the centroid array:
+        # extracting the single structures, the ones that are not clustered
+        # save the length of the centroid array before the addition of the non clustered indexes
+        centroid_array_length = len(centroidArray)
+        
+        for i in xrange(0,len(self.coordinateArray),1):
+            if not i in centroidArray and not i in clusteredIndexArray:
+                centroidArray.append(i)
+                print i
+        
+        
         for n in centroidArray:
-            print "creating PDB for centroid: "+str(n)
+            print "creating PDB for structure index: "+str(n)
             # create the first multimer
             if self.params.style=="flexible":
                 #pick monomeric structure from database
@@ -804,7 +821,11 @@ class Postprocess(PP):
             l.append(self.coordinateArray[n][-1])
             # write average RMSD OF CLUSTER:
             f.append("| %8.3f\n")
-            l.append(average_RMSD_ARRAY[iterant])
+            # check here if the structure belongs to a cluster
+            if iterant < centroid_array_length:
+                l.append(average_RMSD_ARRAY[iterant])
+            else:
+                l.append(0)
 
             formatting=''.join(f)
 
@@ -818,6 +839,11 @@ class Postprocess(PP):
                 tcl_file.write("mol addfile assembly"+str(iterant)+".pdb type pdb first 0 last -1 step 1 filebonds 1 autobonds 1 waitfor all \n")
 
             iterant += 1
+            
+        
+        
+        
+            
             
         tcl_file.write("mol delrep 0 top \n\
 mol representation NewCartoon 0.300000 10.000000 4.100000 0 \n\
