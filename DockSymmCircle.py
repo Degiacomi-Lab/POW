@@ -444,10 +444,14 @@ class Space(S):
         #    self.high[4+rec_dim+i]=data.eigenspace_size[i]
 
         #print "PROJ SHAPE: %s %s"%(data.proj.shape[0],data.proj.shape[1])
+        #for i in xrange(0,len(data.eigenspace_size),1):
+        #    self.low[4+rec_dim+i]=-data.eigenspace_size[i]
+        #    self.high[4+rec_dim+i]=data.eigenspace_size[i]
+
+	    #print "PROJ SHAPE: %s %s"%(data.proj.shape[0],data.proj.shape[1])
         for i in xrange(0,len(data.eigenspace_size),1):
             self.low[4+rec_dim+i]=data.proj[i,:].min()
             self.high[4+rec_dim+i]=data.proj[i,:].max()
-
         #final check for all boundary conditions consistency (cause we're paranoid)
         if (self.low>self.high).any():
             print 'ERROR: a lower boundary condition is greater than a higher one'
