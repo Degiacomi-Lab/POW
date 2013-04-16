@@ -314,7 +314,8 @@ class MakeWork (wx.Panel):
 
         centroidArray = [] # this array will hold the indexes of the centroids
         average_distance_ARRAY = [] # this one will hold the average distance values of clusters in the same order as the centroidArray
-
+        clusteredIndexArray = []
+        
         sorteddistanceArray =  copy.deepcopy(self.Parent.distancePanel.distanceThresholdHash.keys())# this contains the sorted distances of the distance threshold hash containing the RMDS and the corresponding centroid
         sorteddistanceArray.sort()
 
@@ -325,14 +326,17 @@ class MakeWork (wx.Panel):
             if float(selecteddistance) < float(sorteddistanceArray[e]):
                 centroidArray = copy.deepcopy(self.Parent.distancePanel.distanceThresholdHash[sorteddistanceArray[e-1]][0])
                 average_distance_ARRAY = copy.deepcopy(self.Parent.distancePanel.distanceThresholdHash[sorteddistanceArray[e-1]][1])
+                clusteredIndexArray = copy.deepcopy(self.Parent.distancePanel.distanceThresholdHash[sorteddistanceArray[e-1]][2])
                 break
 
         # in case the distance value is higher than the distances in the sorted arrays of distances:
         if len(centroidArray) == 0:
             centroidArray = copy.deepcopy(self.Parent.distancePanel.distanceThresholdHash[sorteddistanceArray[-1]][0])
             average_distance_ARRAY = copy.deepcopy(self.Parent.distancePanel.distanceThresholdHash[sorteddistanceArray[-1]][1])
-            
-        self.Parent.post.make_output( centroidArray,average_distance_ARRAY, self.coordinateArray)
+            clusteredIndexArray = copy.deepcopy(self.Parent.distancePanel.distanceThresholdHash[sorteddistanceArray[-1]][2])
+        
+        
+        self.Parent.post.make_output( centroidArray,average_distance_ARRAY, self.coordinateArray, clusteredIndexArray)
         
     
         
@@ -1294,6 +1298,7 @@ class MakeWork (wx.Panel):
         distance_from_centroid = []
         distances_to_be_averaged = []
         array_of_indexes = []
+        cluster_indexes = copy.deepcopy(self.clusteredIndex)
         
         for centroid in centroidArr:
             distances_to_be_averaged = []
@@ -1315,8 +1320,8 @@ class MakeWork (wx.Panel):
 
             distance_from_centroid.append( sum(distances_to_be_averaged) / len(distances_to_be_averaged) )
 
-
-        self.distanceThresholdHash[distance] = [centroidArr, distance_from_centroid]
+        # save the array containing the centroids, the average distances from the centroid in the clusters and all the clustered indexes 
+        self.distanceThresholdHash[distance] = [centroidArr, distance_from_centroid, cluster_indexes]
 
 
 # --------------------------------------------------------------- TREE PANEL
