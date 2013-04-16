@@ -24,15 +24,14 @@ comm = MPI.COMM_WORLD
 size = comm.Get_size()
 rank = comm.Get_rank()
 
-<<<<<<< HEAD
-=======
+
 if rank == 0:
     print '\n>        Parallel Optimization Workbench (POW)         <'
     print   '> (c) 2012, Laboratory for Biomolecular Modeling, EPFL <'
     print   '>                                                      <'
     print   '>               -postprocess results -                 <\n'
 
->>>>>>> branch 'master' of git@github.com:degiacom/POW
+
 #check input params consistency
 if len(sys.argv)!=3 and len(sys.argv)!=4:
     if rank == 0:

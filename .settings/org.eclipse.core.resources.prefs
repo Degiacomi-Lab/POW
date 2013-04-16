@@ -11,9 +11,7 @@ encoding/AssemblyHeteroMultimer.py=utf-8
 encoding/ClusterAndDraw.py=utf-8
 encoding/Default.py=utf-8
 encoding/DockSymmCircle.py=utf-8
-encoding/DockSymmCircle_old.py=utf-8
 encoding/HeteroMultimer.py=utf-8
 encoding/POW.py=utf-8
-encoding/PSO.py=utf-8
 encoding/flexibility.py=utf-8
 >>>>>>> branch 'master' of git@github.com:degiacom/POW
