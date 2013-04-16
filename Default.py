@@ -212,16 +212,16 @@ class Space:
         while test.any() :
             p_tmp[test]=2*self.high[test]-p[test]
             p[test]=deepcopy(p_tmp[test])
+            v[test]*=-1
             test=np.logical_and(p>self.high,self.boundary_type==1)
-        v[test]*=-1
 
         #low boundary
         test=np.logical_and(p<self.low,self.boundary_type==1)
         while test.any() :
             p_tmp[test]=2*self.low[test]-p[test]
             p[test]=deepcopy(p_tmp[test])
+            v[test]*=-1
             test=np.logical_and(p<self.low,self.boundary_type==1)
-        v[test]*=-1
 
         return p,v
 
@@ -366,6 +366,39 @@ class Postprocess:
                 clusters_file.write("%s\n"%C_V[cnt-1])
         clusters_file.close()
         return
+
+
+    #Euclidean distance between two points.
+    #this function is called by default. Can be superseeded by the module with something specific
+    def computeDistance (self, data1, data2):
+        return np.sqrt(np.dot(data1-data2,data1-data2))
+
+    #dump clustered data
+    def make_output(self, centroidArray, average_ARRAY,coordinateArray):
+        
+        iterant=0
+        self.coordinateArray = coordinateArray
+        
+        clusters_file=open("solutions.dat","w")
+        
+        for n in centroidArray:
+            for item in self.coordinateArray[n][: len(self.coordinateArray[n])-1]:
+                l.append(item)
+                f.append("%8.3f ")
+            #write fitness
+            f.append("| %8.3f")
+            l.append(self.coordinateArray[n][-1])
+            # write average RMSD OF CLUSTER:
+            f.append("| %8.3f\n")
+            l.append(average_ARRAY[iterant])
+
+            formatting=''.join(f)
+
+            clusters_file.write(formatting%tuple(l))
+
+            iterant += 1
+           
+        clusters_file.close()
 
     # Xx Calculate the RMSD between 2 monomers
     #Kabsch alignement algorithm

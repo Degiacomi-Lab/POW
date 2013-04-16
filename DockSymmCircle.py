@@ -63,7 +63,7 @@ class Parser(R):
         self.add('trajectory','trajectory','str',"NA")
         self.add('trajSelection','trajselection','array str',np.array(["NA"]))
         self.add('topology','topology','str',"NA")
-
+        self.add('frameDistancePenalty','frame_distance','float',10.0)
         #rigid assembly flags
         self.add('monomer','pdb_file_name','str',"NA")
 
@@ -71,7 +71,7 @@ class Parser(R):
         self.add('receptor','receptor','str',"NA")
         self.add('boundaryMaxReceptor','high_input_rec','array float',"NA")
         self.add('boundaryMinReceptor','low_input_rec','array float',"NA")
-        self.add('z_padding','pad','int',10)
+        self.add('z_padding','pad','int',5.0)
 
 
     def check_variables(self):
@@ -273,6 +273,7 @@ class Data:
                     print "ERROR: PCA failed, aborting!"
                     sys.exit(1)
 
+
             #compute projections centroid
             try:
                 self.centroid=flexibility.clusterize(self.proj)
@@ -330,9 +331,6 @@ class Data:
 
 
     def get_index(self,atoms=["CA","CB"]):
-        
-        
-        
 
         #generate a dummy multimer
         multimer = M.Multimer(self.structure)
@@ -441,10 +439,14 @@ class Space(S):
 
 
         #add eigenvector fluctuations in search space
-        for i in xrange(0,len(data.eigenspace_size),1):
-            self.low[4+rec_dim+i]=-data.eigenspace_size[i]
-            self.high[4+rec_dim+i]=data.eigenspace_size[i]
+        #for i in xrange(0,len(data.eigenspace_size),1):
+        #    self.low[4+rec_dim+i]=-data.eigenspace_size[i]
+        #    self.high[4+rec_dim+i]=data.eigenspace_size[i]
 
+        #print "PROJ SHAPE: %s %s"%(data.proj.shape[0],data.proj.shape[1])
+        for i in xrange(0,len(data.eigenspace_size),1):
+            self.low[4+rec_dim+i]=data.proj[i,:].min()
+            self.high[4+rec_dim+i]=data.proj[i,:].max()
 
         #final check for all boundary conditions consistency (cause we're paranoid)
         if (self.low>self.high).any():
@@ -471,6 +473,7 @@ class Fitness:
 
     def __init__(self,data,params):
 
+        self.params=params
         self.style=params.style
         self.clash=params.detect_clash
         self.target=params.target
@@ -509,15 +512,23 @@ class Fitness:
         exec 'import %s as constraint'%(self.constraint)
         import Multimer as M
 
+        frame_penalty=0.0
+
         if self.style=="flexible":
         #pick monomeric structure from database
             deform_coeffs=pos[(4+self.rec_dim):len(pos)]
-            pos_eig=self.data.proj[:,self.data.centroid]+deform_coeffs
-            code,min_dist=vq(self.data.proj.transpose(),np.array([pos_eig]))
+            #pos_eig=self.data.proj[:,self.data.centroid]+deform_coeffs
+            code,min_dist=vq(self.data.proj.transpose(),np.array([deform_coeffs]))
+            #code,min_dist=vq(self.data.proj.transpose(),np.array([pos_eig]))
             target_frame=min_dist.argmin()
             coords=self.data.traj[:,target_frame]
             coords_reshaped=coords.reshape(len(coords)/3,3)
             self.data.structure.set_xyz(coords_reshaped)
+
+        #penalize solutions too far from the sampled space
+        #if min_dist.min()>self.params.frame_distance:
+        #    frame_penalty=min_dist.min()-self.params.frame_distance
+        #print "penalty %s : %s"%(num,frame_penalty)
 
         #assemble multimer
         self.multimer = M.Multimer(self.data.structure)
@@ -552,9 +563,9 @@ class Fitness:
         #detect clashes
         if self.clash:
             energy=self.interface_vdw()
-            return self.c1*energy+(1-self.c1)*distance
+            return self.c1*energy+(1-self.c1)*distance+frame_penalty
         else:
-            return distance
+            return distance+frame_penalty
 
 
     def interface_vdw(self):
@@ -635,6 +646,7 @@ class Postprocess(PP):
 
     def run(self):
         
+        
         multimer = M.Multimer(self.data.structure)
         multimer.create_multimer(2,10,np.array([0.0,0.0,0.0]))
         [m,self.index]=multimer.atomselect(1,"*","*","CA",True) # -> extracting indexes of CA
@@ -649,26 +661,33 @@ class Postprocess(PP):
         Matrix_creator.computeMatrix()
         
         comm.Barrier()
+        self.OUTPUT_DIRECTORY=self.params.output_folder
         if rank == 0:
-            self.OUTPUT_DIRECTORY=self.params.output_folder
+            
+            if os.path.isdir(self.OUTPUT_DIRECTORY)!=1:
+                os.mkdir(self.OUTPUT_DIRECTORY)
+            
+            #self.OUTPUT_DIRECTORY=self.params.output_folder
             app = wx.App(False)
             frame = CnD.MainFrame(None, "Clustering interface",self.OUTPUT_DIRECTORY ,self.params, self.data, self)
-            frame.RMSDPanel.computeCluster()
+            frame.distancePanel.computeCluster()
             
             if self.params.cluster_threshold == "NA":
                 frame.Show()
                 app.MainLoop()
             else:
-                frame.RMSDPanel.convertCoordsAndExportPDB(self.params.cluster_threshold)
-                
+                frame.distancePanel.convertCoordsAndExport(self.params.cluster_threshold)
+
+    #this function superseed the standard euclidean distance implemented in Default.py
     def computeDistance (self, data1, data2):            
         
         # create the first multimer
         if self.params.style=="flexible":
             #pick monomeric structure from database
             deform_coeffs=data1[(4+self.rec_dim):-1]
-            pos_eig=self.data.proj[:,self.data.centroid]+deform_coeffs
-            code,min_dist=vq(self.data.proj.transpose(),np.array([pos_eig]))
+            #pos_eig=self.data.proj[:,self.data.centroid]+deform_coeffs
+            #code,min_dist=vq(self.data.proj.transpose(),np.array([pos_eig]))
+            code,min_dist=vq(self.data.proj.transpose(),np.array([deform_coeffs]))
             target_frame=min_dist.argmin()
             coords=self.data.traj[:,target_frame]
             coords_reshaped=coords.reshape(len(coords)/3,3)
@@ -686,8 +705,9 @@ class Postprocess(PP):
         if self.params.style=="flexible":
             #pick monomeric structure from database
             deform_coeffs=data2[(4+self.rec_dim):-1]
-            pos_eig=self.data.proj[:,self.data.centroid]+deform_coeffs
-            code,min_dist=vq(self.data.proj.transpose(),np.array([pos_eig]))
+            #pos_eig=self.data.proj[:,self.data.centroid]+deform_coeffs
+            #code,min_dist=vq(self.data.proj.transpose(),np.array([pos_eig]))
+            code,min_dist=vq(self.data.proj.transpose(),np.array([deform_coeffs]))
             target_frame=min_dist.argmin()
             coords=self.data.traj[:,target_frame]
             coords_reshaped=coords.reshape(len(coords)/3,3)
@@ -699,12 +719,16 @@ class Postprocess(PP):
         multimer2.create_multimer(self.params.degree,data2[3],np.array([data2[0],data2[1],data2[2]]))
         m2=multimer2.get_multimer_uxyz()[0][self.index]
 
-        # calculate RMSD between the 2
+        # calculate distance between the 2
         rmsd=self.align(m1,m2) # --> comes from Default.Postprocess.align()
         
         return rmsd
                 
-    def write_pdb(self, centroidArray, average_RMSD_ARRAY, coordinateArray):
+                
+    def make_output(self, centroidArray, average_RMSD_ARRAY, coordinateArray, clusteredIndexArray):
+        print clusteredIndexArray
+        print len(clusteredIndexArray)
+        
         
         self.coordinateArray = coordinateArray
                     
@@ -730,20 +754,42 @@ class Postprocess(PP):
             print 'ERROR: constraint_check function not found'
 
         
-#        if len(self.Parent.RMSDPanel.coordinateArray[0]) < 12: # usually 12 but modified here not to test HeteroMultimer
         print "extracting Simple multimer pdb"
 
         s = Protein()
         s.import_pdb(self.params.pdb_file_name)
         coords=s.get_xyz()
-
+        
+        # add the indexes of the non clustered indexes to the centroid array:
+        # extracting the single structures, the ones that are not clustered
+        # save the length of the centroid array before the addition of the non clustered indexes
+        centroid_array_length = len(centroidArray)
+        
+        for i in xrange(0,len(self.coordinateArray),1):
+            if not i in centroidArray and not i in clusteredIndexArray:
+                centroidArray.append(i)
+                print i
+        
+        
         for n in centroidArray:
-            print "creating PDB for centroid: "+str(n)
-            self.data.structure.set_xyz(coords)#(self.Parent.post.coords)
+            print "creating PDB for structure index: "+str(n)
+            # create the first multimer
+            if self.params.style=="flexible":
+                #pick monomeric structure from database
+                deform_coeffs=coordinateArray[n][(4+self.rec_dim):-1]
+                #pos_eig=self.data.proj[:,self.data.centroid]+deform_coeffs
+                #code,min_dist=vq(self.data.proj.transpose(),np.array([pos_eig]))
+                code,min_dist=vq(self.data.proj.transpose(),np.array([deform_coeffs]))
+                target_frame=min_dist.argmin()
+                coords=self.data.traj[:,target_frame]
+                coords_reshaped=coords.reshape(len(coords)/3,3)
+                self.data.structure.set_xyz(coords_reshaped)                         
+            else:
+                self.data.structure.set_xyz(coords)
+    
+            #pos = np.array(C[cnt-1])[0:(4+self.rec_dim)].astype(float)
             multimer1 = M.Multimer(self.data.structure)
-            #self.structure.set_xyz(coords) # this was the old way, was not correct
-            #multimer1 = M.Multimer(self.structure) # same as directly above
-            multimer1.create_multimer(self.params.degree ,self.coordinateArray[n][3],np.array([self.coordinateArray[n][0],self.coordinateArray[n][1],self.coordinateArray[n][2]]))
+            multimer1.create_multimer(self.params.degree ,coordinateArray[n][3],np.array([coordinateArray[n][0],coordinateArray[n][1],coordinateArray[n][2]]))
 
 
             # print the pdb file
@@ -771,7 +817,11 @@ class Postprocess(PP):
             l.append(self.coordinateArray[n][-1])
             # write average RMSD OF CLUSTER:
             f.append("| %8.3f\n")
-            l.append(average_RMSD_ARRAY[iterant])
+            # check here if the structure belongs to a cluster
+            if iterant < centroid_array_length:
+                l.append(average_RMSD_ARRAY[iterant])
+            else:
+                l.append(0)
 
             formatting=''.join(f)
 
@@ -785,6 +835,11 @@ class Postprocess(PP):
                 tcl_file.write("mol addfile assembly"+str(iterant)+".pdb type pdb first 0 last -1 step 1 filebonds 1 autobonds 1 waitfor all \n")
 
             iterant += 1
+            
+        
+        
+        
+            
             
         tcl_file.write("mol delrep 0 top \n\
 mol representation NewCartoon 0.300000 10.000000 4.100000 0 \n\

@@ -31,7 +31,6 @@ from MDAnalysis import *
 import MDAnalysis.analysis.align
 
 
-
 # read in a topology and a trajectory and re,turn a matrix of atomic coordinates (also write a pdb of first frame)
 def loader(trajectory, topology, align="yes",selection="protein"):
 
