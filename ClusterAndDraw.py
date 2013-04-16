@@ -335,8 +335,18 @@ class MakeWork (wx.Panel):
             average_distance_ARRAY = copy.deepcopy(self.Parent.distancePanel.distanceThresholdHash[sorteddistanceArray[-1]][1])
             clusteredIndexArray = copy.deepcopy(self.Parent.distancePanel.distanceThresholdHash[sorteddistanceArray[-1]][2])
         
+        ####################UPDATED PART############################
         
-        self.Parent.post.make_output( centroidArray,average_distance_ARRAY, self.coordinateArray, clusteredIndexArray)
+        for i in xrange(0,len(self.coordinateArray),1):
+            if not i in centroidArray and not i in clusteredIndexArray:
+                centroidArray.append(i)
+                average_distance_ARRAY.append(0) #add zeros to RMSD array in a quantity equal to the elements added to centridArray
+
+        coordinates=self.coordinateArray[centroidArray,:] #SLICE HERE coordinateArray, to extract only data we're interested about
+       
+        self.Parent.post.make_output(coordinates, average_distance_ARRAY) #make_output just needs 2 parameters
+        
+        #self.Parent.post.make_output( centroidArray,average_distance_ARRAY, self.coordinateArray, clusteredIndexArray) #OLD CALL
         
     
         

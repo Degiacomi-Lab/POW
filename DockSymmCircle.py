@@ -729,10 +729,7 @@ class Postprocess(PP):
         return rmsd
                 
                 
-    def make_output(self, centroidArray, average_RMSD_ARRAY, coordinateArray, clusteredIndexArray):
-        print clusteredIndexArray
-        print len(clusteredIndexArray)
-        
+    def make_output(self, coordinateArray, average_RMSD_ARRAY):
         
         self.coordinateArray = coordinateArray
                     
@@ -757,25 +754,12 @@ class Postprocess(PP):
         except NameError:
             print 'ERROR: constraint_check function not found'
 
-        
-        print "extracting Simple multimer pdb"
-
         s = Protein()
         s.import_pdb(self.params.pdb_file_name)
         coords=s.get_xyz()
         
-        # add the indexes of the non clustered indexes to the centroid array:
-        # extracting the single structures, the ones that are not clustered
-        # save the length of the centroid array before the addition of the non clustered indexes
-        centroid_array_length = len(centroidArray)
-        
-        for i in xrange(0,len(self.coordinateArray),1):
-            if not i in centroidArray and not i in clusteredIndexArray:
-                centroidArray.append(i)
-                print i
-        
-        
-        for n in centroidArray:
+        for n in xrange(0,coordinateArray.shape[0],1):
+            
             print "creating PDB for structure index: "+str(n)
             # create the first multimer
             if self.params.style=="flexible":
@@ -793,8 +777,7 @@ class Postprocess(PP):
     
             #pos = np.array(C[cnt-1])[0:(4+self.rec_dim)].astype(float)
             multimer1 = M.Multimer(self.data.structure)
-            multimer1.create_multimer(self.params.degree ,coordinateArray[n][3],np.array([coordinateArray[n][0],coordinateArray[n][1],coordinateArray[n][2]]))
-
+            multimer1.create_multimer(self.params.degree, coordinateArray[n][3], np.array([coordinateArray[n][0],coordinateArray[n][1],coordinateArray[n][2]]))
 
             # print the pdb file
             multimer1.write_PDB("%s/assembly%s.pdb"%(self.OUTPUT_DIRECTORY,iterant))
@@ -802,7 +785,7 @@ class Postprocess(PP):
             # create the constraint:
             measure = constraint.constraint_check(multimer1)
 
-            # ----------------------------- WRITING SOLUTION.DAT
+            # WRITING SOLUTION.DAT
             l = []
             f = []
 
@@ -822,10 +805,7 @@ class Postprocess(PP):
             # write average RMSD OF CLUSTER:
             f.append("| %8.3f\n")
             # check here if the structure belongs to a cluster
-            if iterant < centroid_array_length:
-                l.append(average_RMSD_ARRAY[iterant])
-            else:
-                l.append(0)
+            l.append(average_RMSD_ARRAY[iterant])
 
             formatting=''.join(f)
 
@@ -838,12 +818,7 @@ class Postprocess(PP):
             else:
                 tcl_file.write("mol addfile assembly"+str(iterant)+".pdb type pdb first 0 last -1 step 1 filebonds 1 autobonds 1 waitfor all \n")
 
-            iterant += 1
-            
-        
-        
-        
-            
+            iterant += 1     
             
         tcl_file.write("mol delrep 0 top \n\
 mol representation NewCartoon 0.300000 10.000000 4.100000 0 \n\
