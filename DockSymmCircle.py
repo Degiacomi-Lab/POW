@@ -225,10 +225,11 @@ class Parser(R):
 
 class Data:
 
-    index=[]
-    index_receptor=[]
 
     def __init__(self,params):
+
+        self.index=[]
+        self.index_receptor=[]
 
         self.eigenspace_size=""
 
