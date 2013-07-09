@@ -17,13 +17,9 @@
 # Web site : http://lbm.epfl.ch
 
 
-#from PSO_Hetero import PSO
-from PSO import PSO
-#import wx
 import os, sys
 import time
 import numpy as np
-#import ClusterAndDraw as CnD
 
 from mpi4py import MPI
 comm = MPI.COMM_WORLD
@@ -34,7 +30,7 @@ rank = comm.Get_rank()
 if rank == 0:
 
     print '\n>        Parallel Optimization Workbench (POW)         <'
-    print   '> (c) 2012, Laboratory for Biomolecular Modeling, EPFL <'
+    print   '> (c) 2013, Laboratory for Biomolecular Modeling, EPFL <'
 
     # checking if input is correct and has 3 arguments
     if len(sys.argv)!=3:
@@ -74,7 +70,7 @@ if rank == 0:
 
     print '\n> PREPROCESSING %s\n'%mod.split('.')[0]
 
-    exec 'import %s as mode'%(mod.split('.')[0]) 
+    exec 'import %s as mode'%(mod.split('.')[0])
 
     #parse input file
     print '>> parsing input file...'
@@ -130,8 +126,19 @@ fitness=comm.bcast(fitness,root=0)
 data=comm.bcast(data,root=0)
 comm.Barrier()
 
-#prepare optimizer
-search=PSO(params,space,fitness)
+#load optimizer
+try:
+    if rank==0:
+        print ">> loading optimizer %s..."%params.optimizer
+        
+    exec 'from %s import %s as Optimizer'%(params.optimizer,params.optimizer) 
+    search=Optimizer(params,space,fitness)
+except:
+    if rank==0:
+        print "ERROR: optimizer %s not found!"%params.optimizer
+        print "ERROR: file %s.py should be located in PYTHONPATH, POW working directory or POW folder!"%params.optimizer
+    sys.exit(1)
+
 
 #init optimization timer
 if rank==0:

@@ -26,6 +26,8 @@ class Parser: # this is imported in the file
 
 
         #keyword_name, variable_name, type, default value
+        self.add('optimizer','optimizer','str',"PSO")
+        
         self.add('repeat','repeat','int',1)
         self.add('steps','max_steps','int',200)
         self.add('particles','n_particles','int',80)
