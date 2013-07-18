@@ -402,7 +402,7 @@ class MakeWork (wx.Panel):
         indexAway = 0
 
         # TAKING data FROM distance THRESHOLD
-        self.distanceThresholdHash = {} # this hash will contain the centroids corresponding to each passed distance threshold
+        self.distanceThresholdHash = {} # this dictionary will contain the centroids as well as their clustered indexes corresponding to each passed distance threshold
 
         # Numpy matrix shortcut variables:
         self.minimumIndex = 0
@@ -1072,11 +1072,11 @@ class MakeWork (wx.Panel):
 
 
     def PrintClusterState(self):
-        #print " ---------------------------- CLUSTERS SO FAR ---------------------------------------"
-        #for key in self.clusterHash.keys():
-            #print "cluster "+str(key)+" "+str(self.clusterHash[key])
-        #print " ------------------------------------------------------------------------------------"
-        pass
+        print " ---------------------------- CLUSTERS SO FAR ---------------------------------------"
+        for key in self.clusterHash.keys():
+            print "cluster "+str(key)+" "+str(self.clusterHash[key])
+        print " ------------------------------------------------------------------------------------"
+#        pass
 
     def PrintSortedListState(self):
         print "----------------------------- STATE OF SORTED ARRAY"
@@ -1302,33 +1302,40 @@ class MakeWork (wx.Panel):
 
 
     def SaveCentroidsAtdistance (self, distance):
-        centroidArr = copy.deepcopy(self.centroidArray)
+        '''Used to keep track of the centroids and their clusters at each time step in order to extract them 
+        when selecting distance with the dendrogram GUI'''
 
         # get the within cluster RSMD value, which is average value of centroid to all
         distance_from_centroid = []
         distances_to_be_averaged = []
         array_of_indexes = []
         cluster_indexes = copy.deepcopy(self.clusteredIndex)
+        centroidArr = []
         
-        for centroid in centroidArr:
-            distances_to_be_averaged = []
+        # loop over all the formed clusters and extract their centroid as well their clustered indexes
+        for cluster in self.clusterHash.values():
+            # we also want to include the clusters of only two elements so we need to separate the two types of clusters.
+            if cluster[0] == None:
+                centroid = cluster[1][0]
+                
+            else:
+                centroid = cluster[0]
 
-            # first get the array of indexes for each centroid:
-            for value in self.clusterHash.values():
-                if centroid == value[0]:
-                    array_of_indexes = copy.deepcopy(value[1])
-                    break
-
+            
+            centroidArr.append(centroid)
+            indeces = copy.deepcopy(cluster[1])   
+            indeces.remove(centroid) 
+            distances_to_be_averaged = [] # this will contain all the indexes present in the clusters excepted the centroids
+            array_of_indexes = indeces
+            
+            # calculating the distance between each centroid and their clustered indeces
             for index in array_of_indexes:
-                if index == centroid:
-                    pass
-                elif self.distanceMatrix[centroid][index] == 100:
+                if self.distanceMatrix[centroid][index] == 100:
                     distances_to_be_averaged.append(self.distanceMatrix[index][centroid])
                 else:
                     distances_to_be_averaged.append(self.distanceMatrix[centroid][index])
 
-
-            distance_from_centroid.append( sum(distances_to_be_averaged) / len(distances_to_be_averaged) )
+            distance_from_centroid.append( sum(distances_to_be_averaged) / len(distances_to_be_averaged) ) 
 
         # save the array containing the centroids, the average distances from the centroid in the clusters and all the clustered indexes 
         self.distanceThresholdHash[distance] = [centroidArr, distance_from_centroid, cluster_indexes]

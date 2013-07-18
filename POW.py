@@ -127,17 +127,17 @@ data=comm.bcast(data,root=0)
 comm.Barrier()
 
 #load optimizer
-try:
-    if rank==0:
-        print ">> loading optimizer %s..."%params.optimizer
+#try:
+if rank==0:
+    print ">> loading optimizer %s..."%params.optimizer
         
-    exec 'from %s import %s as Optimizer'%(params.optimizer,params.optimizer) 
-    search=Optimizer(params,space,fitness)
-except:
-    if rank==0:
-        print "ERROR: optimizer %s not found!"%params.optimizer
-        print "ERROR: file %s.py should be located in PYTHONPATH, POW working directory or POW folder!"%params.optimizer
-    sys.exit(1)
+exec 'from %s import %s as Optimizer'%(params.optimizer,params.optimizer) 
+search=Optimizer(params,space,fitness)
+#except:
+#    if rank==0:
+#        print "ERROR: optimizer %s not found!"%params.optimizer
+#        print "ERROR: file %s.py should be located in PYTHONPATH, POW working directory or POW folder!"%params.optimizer
+#    sys.exit(1)
 
 
 #init optimization timer
